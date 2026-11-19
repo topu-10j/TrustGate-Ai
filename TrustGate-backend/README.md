@@ -98,3 +98,29 @@ interpreter-এর absolute path দাও। Python না চললে scan `5
 - Dropdown-এর role selection দিয়ে যে কেউ local demo-তে Admin বেছে নিতে পারে। Token শুধু server-এ নির্বাচিত demo role ধরে রাখে। এটা login বা পরিচয় যাচাই নয়। Session ৩০ মিনিটে expire হয় এবং backend restart-এ মুছে যায়।
 - Keyword aliases দিয়ে topic চেনা হয়, তাই সব natural-language phrasing support করে না। Unknown topic বা একাধিক অনুমোদিত topic-এর প্রশ্নে `422` আসে। কোনো matching topic role-এর জন্য নিষিদ্ধ হলে `403` আসে।
 - Company data পুরোপুরি fictional। Demo endpoint এবং dataset বাস্তব তথ্য বা production access control-এর জন্য নয়।
+
+## Local account login milestone
+
+This is the backend-only login mode. The existing frontend still uses the demo role
+picker until the frontend login work is added. The normal `npm start` command keeps
+the existing no-sign-in demo working.
+
+1. From `TrustGate-backend`, run `npm run login:setup` once. It creates three local
+   test accounts (Intern, Employee, and Admin), prints the generated passwords once,
+   and stores only salted hashes in the ignored `.local-accounts.json`. Setup does
+   not overwrite existing accounts.
+2. Stop the old server, then run `npm run start:login`. Check `GET /health` for
+   `mode: "local-login"`. On PowerShell use `npm.cmd` if needed.
+3. Run `npm test` to verify both modes and all three account permissions.
+
+In login mode, `POST /api/auth/login` accepts exactly `email` and `password`, sets an
+HttpOnly, SameSite=Strict cookie, and returns `{ user: { email, role } }`.
+`GET /api/auth/me` returns the session identity, and `POST /api/auth/logout`
+invalidates the session. Chat, audit and scanner use the same cookie. The
+`/api/demo/session` endpoint is disabled in login mode. For frontend integration
+use a Vite proxy or `credentials: "include"` with the same hostname on both ports
+(for example, 127.0.0.1); never store the session in frontend storage.
+
+The login CLI is loopback-only. Accounts are local, and sessions are in memory.
+The local cookie uses HTTP. Public deployment, a database-backed account store
+and HTTPS cookie configuration are separate work.
