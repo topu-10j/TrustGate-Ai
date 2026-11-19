@@ -1,0 +1,76 @@
+# TrustGate — Local role-based backend
+
+NexusTech Ltd. একটি কাল্পনিক কোম্পানি। এই backend তিনটি demo role-এর জন্য তথ্যের access আলাদা করে। AI API, database বা third-party package ছাড়াই প্রথম demo চলে।
+
+## VS Code-এ চালাও
+
+1. ZIP extract করো। VS Code-এ **File → Open Folder** দিয়ে `trustgate-backend` folder খুলে নাও।
+2. **Terminal → New Terminal**। `node -v` দিয়ে Node.js 22 বা নতুন version আছে কি না দেখো।
+3. প্রথম terminal-এ চালাও:
+
+   ```sh
+   npm start
+   ```
+
+4. প্রথম terminal খোলা রেখে আরেকটা terminal-এ চালাও:
+
+   ```sh
+   npm run demo
+   npm test
+   ```
+
+`npm install` লাগবে না। Windows PowerShell-এ execution policy যদি `npm.ps1` আটকে দেয়, `npm.cmd start`, `npm.cmd run demo` ও `npm.cmd test` ব্যবহার করো।
+
+`npm run demo`-এর মূল ফলাফল:
+
+| Role | প্রশ্ন | ফলাফল |
+| --- | --- | --- |
+| Intern | What are the office hours? | `200` · অফিস সময় |
+| Intern | What is the confidential budget? | `403 ACCESS_DENIED` |
+| Admin | What is the confidential budget? | `200` · BDT 1,200,000 (fictional) |
+
+## তোর main কাজ কোথায়
+
+| ফাইল | দায়িত্ব |
+| --- | --- |
+| `src/policy.js` | কোন role কোন শ্রেণির record পড়তে পারবে |
+| `src/server.js` | Demo session, request validation, permission gate ও API response |
+| `src/catalog.js` | প্রশ্ন থেকে পরিচিত topic মেলানো |
+| `data/company.json` | Server-only fictional record এবং topic aliases |
+| `src/answer.js` | অনুমোদিত একটি record থেকে উত্তর। এখন local stub, পরে AI adapter |
+| `test/server.test.js` | API এবং permission integration tests |
+
+Access levels:
+
+| Role value | Public | Employee | Confidential |
+| --- | --- | --- | --- |
+| `intern` | ✓ | — | — |
+| `employee` | ✓ | ✓ | — |
+| `admin` | ✓ | ✓ | ✓ |
+
+## Frontend teammate-এর API contract
+
+Base URL `http://127.0.0.1:3000`। `GET /health` চালিয়ে backend ready কি না দেখা যায়।
+
+1. Dropdown থেকে role বদলালে `POST /api/demo/session` পাঠাও। JSON body `{"role":"intern"}`। CEO/Admin label-এর API value `admin`। `201` response থেকে `token` নাও এবং frontend state-এ রাখো। Role বদলানোর পর নতুন token ব্যবহার করো এবং আগের role-এর chat UI clear করো।
+2. প্রশ্নে `POST /api/chat` পাঠাও। Headers-এ `Content-Type: application/json` ও `Authorization: Bearer <token>`। JSON body-তে শুধু `message` থাকবে, যেমন `{"message":"What is the confidential budget?"}`।
+3. `200` হলে `answer` দেখাও। `403` ও `code: "ACCESS_DENIED"` হলে লাল alert দেখাও। `401` হলে role আবার select করতে বলো। `422` হলে supported topic থেকে একবারে একটি প্রশ্ন করতে বলো।
+
+Default browser origins হলো `http://localhost:5173`, `http://127.0.0.1:5173`, `http://localhost:5500` ও `http://127.0.0.1:5500`। অন্য local port হলে `FRONTEND_ORIGIN`-এ exact origin set করে backend restart করো। যেমন PowerShell-এ:
+
+```powershell
+$env:FRONTEND_ORIGIN = "http://localhost:5174"
+npm start
+```
+
+Live Server বা অন্য static server দিয়ে শুধু **frontend-এর folder** serve করবে, backend-এর `data/` folder নয়।
+
+## AI teammate-এর integration point
+
+`src/answer.js`-এর `generateAnswer({ question, record })` function replace করো। অনুমোদিত হলে backend শুধু user question এবং একটি record-এর `id`, `title`, `content` পাঠায়। Function-এর return value একটি string। Provider call server-side রাখো এবং API key environment variable থেকে নাও। Model-কে পুরো catalog, role নির্ধারণের দায়িত্ব বা data-fetching tool দিও না। Blocked request-এ function call-ই হয় না। Test suite এটা যাচাই করে।
+
+## Demo-এর সীমা
+
+- Dropdown-এর role selection দিয়ে যে কেউ local demo-তে Admin বেছে নিতে পারে। Token শুধু server-এ নির্বাচিত demo role ধরে রাখে। এটা login বা পরিচয় যাচাই নয়। Session ৩০ মিনিটে expire হয় এবং backend restart-এ মুছে যায়।
+- Keyword aliases দিয়ে topic চেনা হয়, তাই সব natural-language phrasing support করে না। Unknown topic বা একাধিক অনুমোদিত topic-এর প্রশ্নে `422` আসে। কোনো matching topic role-এর জন্য নিষিদ্ধ হলে `403` আসে।
+- Company data পুরোপুরি fictional। Demo endpoint এবং dataset বাস্তব তথ্য বা production access control-এর জন্য নয়।

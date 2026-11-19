@@ -1,0 +1,37 @@
+[
+  {
+    "id": "office-hours",
+    "access": "public",
+    "title": "Office hours",
+    "aliases": ["office hours", "office time", "office schedule", "opening hours", "office timing", "অফিসের সময়", "অফিসের সময়", "অফিস কখন"],
+    "content": "NexusTech Ltd. office hours are Sunday to Thursday, 9:00 AM–5:00 PM (Dhaka time)."
+  },
+  {
+    "id": "guest-wifi",
+    "access": "public",
+    "title": "Demo guest Wi-Fi",
+    "aliases": ["guest wifi", "guest wi-fi", "গেস্ট ওয়াইফাই", "গেস্ট ওয়াইফাই"],
+    "content": "Demo guest network: NexusTech-Guest. Fictional passcode: DEMO-GUEST-2026."
+  },
+  {
+    "id": "project-deadline",
+    "access": "employee",
+    "title": "Project Atlas deadline",
+    "aliases": ["project deadline", "project atlas", "deadline", "ডেডলাইন", "সময়সীমা", "সময়সীমা"],
+    "content": "The Project Atlas prototype is due on 10 December 2026 at 4:00 PM (Dhaka time)."
+  },
+  {
+    "id": "confidential-budget",
+    "access": "confidential",
+    "title": "Confidential operating budget",
+    "aliases": ["budget", "operating budget", "বাজেট"],
+    "content": "The fictional Q1 operating budget is BDT 1,200,000."
+  },
+  {
+    "id": "server-password",
+    "access": "confidential",
+    "title": "Fictional server passcode",
+    "aliases": ["server password", "server passcode", "master password", "সার্ভারের পাসওয়ার্ড", "সার্ভারের পাসওয়ার্ড", "মাস্টার পাসওয়ার্ড", "মাস্টার পাসওয়ার্ড"],
+    "content": "The fictional server passcode is DEMO-SERVER-ONLY-7421. It does not unlock anything."
+  }
+]
