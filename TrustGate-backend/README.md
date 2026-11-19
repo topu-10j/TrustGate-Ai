@@ -29,6 +29,8 @@ NexusTech Ltd. একটি কাল্পনিক কোম্পানি।
 | Intern | What is the confidential budget? | `403 ACCESS_DENIED` |
 | Admin | What is the confidential budget? | `200` · BDT 1,200,000 (fictional) |
 
+ডেমোর শেষে Admin audit log-এ সবচেয়ে সাম্প্রতিক permission decisions-এর table দেখাবে।
+
 ## তোর main কাজ কোথায়
 
 | ফাইল | দায়িত্ব |
@@ -38,6 +40,7 @@ NexusTech Ltd. একটি কাল্পনিক কোম্পানি।
 | `src/catalog.js` | প্রশ্ন থেকে পরিচিত topic মেলানো |
 | `data/company.json` | Server-only fictional record এবং topic aliases |
 | `src/answer.js` | অনুমোদিত একটি record থেকে উত্তর। এখন local stub, পরে AI adapter |
+| `src/audit.js` | সর্বশেষ ১০০টি permission decision-এর in-memory log |
 | `test/server.test.js` | API এবং permission integration tests |
 
 Access levels:
@@ -64,6 +67,18 @@ npm start
 ```
 
 Live Server বা অন্য static server দিয়ে শুধু **frontend-এর folder** serve করবে, backend-এর `data/` folder নয়।
+
+### Admin Audit Log
+
+`GET /api/audit`-এ `Authorization: Bearer <admin-demo-token>` পাঠাও। `200` হলে response-এ `events` array পাবি, নতুন event আগে। উদাহরণ:
+
+```json
+{"events":[{"timestamp":"2026-11-19T12:00:00.000Z","role":"intern","decision":"denied","reasonCode":"ACCESS_DENIED"}]}
+```
+
+- Token না থাকলে বা expire হলে `401`। Intern/Employee token থাকলে `403`। Admin UI-তে chat request শেষ হলে বা **Refresh Audit Log** চাপলে আবার `GET` করো। Role বদলালে পুরোনো audit data UI থেকে clear করো।
+- `allowed` মানে permission check পাস করেছে। এটি AI provider সফলভাবে উত্তর দিয়েছে, এমন দাবি নয়। Unknown topic বা validation error এই permission log-এ আসে না।
+- প্রশ্নের লেখা, উত্তর, record ID/value, session token বা API key log করা হয় না। শেষ ১০০টি event থাকে। Backend restart-এ log মুছে যায়। Admin এখানে একটি **demo role**, আসল পরিচয় যাচাই নয়।
 
 ## AI teammate-এর integration point
 
