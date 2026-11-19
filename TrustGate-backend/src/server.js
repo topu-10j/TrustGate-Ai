@@ -6,6 +6,7 @@ import { generateAnswer as defaultAnswer } from "./answer.js";
 import { createAuditLog } from "./audit.js";
 import { scanPrompt as defaultScanner } from "./scanner.js";
 import { normalizeEmail, validCredentials } from "./local-accounts.js";
+import { readVaultUpload, validateDocumentMetadata, VaultInputError } from "./vault-upload.js";
 
 const BODY_LIMIT = 8 * 1024;
 const SESSION_TTL_MS = 30 * 60 * 1000;
@@ -14,8 +15,11 @@ const SESSION_COOKIE = "trustgate_session";
 const LOGIN_WINDOW_MS = 60 * 1000;
 const LOGIN_ATTEMPT_LIMIT = 8;
 const MAX_CONCURRENT_LOGINS = 2;
+const MAX_CONCURRENT_UPLOADS = 2;
 const DEMO_PATHS = ["/api/demo/session", "/api/chat", "/api/audit", "/api/security/scan"];
 const LOGIN_PATHS = ["/api/auth/login", "/api/auth/me", "/api/auth/logout"];
+const vaultCollection = "/api/vault/documents";
+const vaultItem = /^\/api\/vault\/documents\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(\/archive)?$/i;
 const DEFAULT_ORIGINS = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
@@ -77,14 +81,14 @@ function sessionCookie(token, maxAge) {
   return `${SESSION_COOKIE}=${token}; Path=/api; HttpOnly; SameSite=Strict; Max-Age=${maxAge}`;
 }
 
-function configureCors(req, res, allowedOrigins, loginMode) {
+function configureCors(req, res, allowedOrigins, loginMode, vaultEnabled) {
   const origin = req.headers.origin;
   if (!origin) return;
   if (!allowedOrigins.has(origin)) {
     throw new ApiError(403, "ORIGIN_NOT_ALLOWED", "This browser origin is not allowed.");
   }
   res.setHeader("Access-Control-Allow-Origin", origin);
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", vaultEnabled ? "GET, POST, PATCH, OPTIONS" : "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (loginMode) res.setHeader("Access-Control-Allow-Credentials", "true");
 }
@@ -96,7 +100,8 @@ export function createServer({
   authenticate,
   accountSource = "local",
   now = Date.now,
-  audit = createAuditLog(now)
+  audit = createAuditLog(now),
+  vault
 } = {}) {
   const sessions = new Map();
   const origins = new Set(allowedOrigins);
@@ -104,13 +109,23 @@ export function createServer({
   const mode = loginMode ? (accountSource === "postgres" ? "postgres-login" : "local-login") : "local-demo";
   let loginWindowStart = now();
   let loginAttempts = 0;
+  const vaultEnabled = loginMode && accountSource === "postgres" && Boolean(vault);
   let activeLogins = 0;
+  let activeUploads = 0;
 
   async function useAudit(operation) {
     try {
       return await operation();
     } catch {
       throw new ApiError(503, "AUDIT_UNAVAILABLE", "The audit log is temporarily unavailable.");
+    }
+  }
+
+  async function useVault(operation) {
+    try {
+      return await operation();
+    } catch {
+      throw new ApiError(503, "VAULT_UNAVAILABLE", "The document vault is temporarily unavailable.");
     }
   }
 
@@ -170,13 +185,15 @@ export function createServer({
       if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(req.headers.host ?? "")) {
         throw new ApiError(400, "INVALID_HOST", "Use localhost or 127.0.0.1 for this demo.");
       }
-      configureCors(req, res, origins, loginMode);
+      configureCors(req, res, origins, loginMode, vaultEnabled);
       const path = req.url.split("?")[0];
+      const vaultMatch = vaultEnabled ? vaultItem.exec(path) : null;
+      const isVaultPath = vaultEnabled && (path === vaultCollection || path === "/api/documents" || Boolean(vaultMatch));
 
       const supportedPaths = loginMode
         ? [...DEMO_PATHS.filter((route) => route !== "/api/demo/session"), ...LOGIN_PATHS]
         : DEMO_PATHS;
-      if (req.method === "OPTIONS" && supportedPaths.includes(path)) {
+      if (req.method === "OPTIONS" && (supportedPaths.includes(path) || isVaultPath)) {
         res.writeHead(204);
         return res.end();
       }
@@ -213,6 +230,45 @@ export function createServer({
         res.setHeader("Set-Cookie", sessionCookie("", 0));
         res.writeHead(204);
         return res.end();
+      }
+
+      if (isVaultPath) {
+        const { role, email } = requireSession(req);
+        if (path === "/api/documents" && req.method === "GET") {
+          return sendJson(res, 200, { documents: await useVault(() => vault.listReadable(role)) });
+        }
+        if (role !== "admin") {
+          throw new ApiError(403, "ACCESS_DENIED", "Only an Admin can manage the document vault.");
+        }
+        if (path === vaultCollection && req.method === "GET") {
+          return sendJson(res, 200, { documents: await useVault(() => vault.listAdmin()) });
+        }
+        if (path === vaultCollection && req.method === "POST") {
+          if (activeUploads >= MAX_CONCURRENT_UPLOADS) {
+            throw new ApiError(429, "UPLOAD_BUSY", "Too many uploads in progress. Try again shortly.");
+          }
+          activeUploads++;
+          try {
+            const upload = await readVaultUpload(req);
+            const document = await useVault(() => vault.insert(upload, email));
+            return sendJson(res, 201, { document });
+          } finally {
+            activeUploads--;
+          }
+        }
+        if (vaultMatch && !vaultMatch[2] && req.method === "PATCH") {
+          const { title, accessLevel } = await readJson(req, "title", "accessLevel");
+          const metadata = validateDocumentMetadata(title, accessLevel);
+          const document = await useVault(() => vault.update(vaultMatch[1], metadata));
+          if (!document) throw new ApiError(404, "DOCUMENT_NOT_FOUND", "Document not found.");
+          return sendJson(res, 200, { document });
+        }
+        if (vaultMatch?.[2] && req.method === "POST") {
+          const document = await useVault(() => vault.archive(vaultMatch[1]));
+          if (!document) throw new ApiError(404, "DOCUMENT_NOT_FOUND", "Document not found.");
+          return sendJson(res, 200, { document });
+        }
+        throw new ApiError(404, "NOT_FOUND", "API endpoint not found.");
       }
 
       if (req.method === "GET" && path === "/api/audit") {
@@ -280,7 +336,7 @@ export function createServer({
       throw new ApiError(404, "NOT_FOUND", "API endpoint not found.");
     } catch (error) {
       req.resume();
-      if (error instanceof ApiError) {
+      if (error instanceof ApiError || error instanceof VaultInputError) {
         return sendJson(res, error.status, { code: error.code, message: error.message });
       }
       return sendJson(res, 500, { code: "INTERNAL_ERROR", message: "Something went wrong." });

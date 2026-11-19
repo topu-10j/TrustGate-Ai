@@ -34,6 +34,7 @@ if (postgresMode) {
   });
   const { withPasswordPrompt } = await import("./password-prompt.js");
   const { createPostgresAuditLog } = await import("./postgres-audit.js");
+  const { createPostgresVault } = await import("./postgres-vault.js");
   try {
     const password = process.env.PGPASSWORD || await withPasswordPrompt(
       (secret) => secret("Database password for trustgate_app: ")
@@ -42,6 +43,7 @@ if (postgresMode) {
     pool.on("error", () => console.error("PostgreSQL connection interrupted."));
     await postgres.verifyPostgresSchema(pool);
     options.audit = await createPostgresAuditLog(pool);
+    options.vault = await createPostgresVault(pool);
     options.authenticate = postgres.createPostgresAuthenticator(pool);
     options.accountSource = "postgres";
   } catch (error) {

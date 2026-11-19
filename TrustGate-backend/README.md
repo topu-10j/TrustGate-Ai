@@ -166,3 +166,29 @@ record details and tokens are not stored in the audit table.
 If the audit store is unavailable, audit reads and attempts that need to record
 an access decision return `503 AUDIT_UNAVAILABLE`. An approved record is not
 sent to the answer provider unless its permission decision has been saved.
+
+## Admin Vault API (PostgreSQL mode)
+
+Run `npm ci` in `TrustGate-backend` after adding this feature. The PostgreSQL
+backend creates the document table at startup without needing to seed accounts
+again. Original file bytes stay private in PostgreSQL. The endpoints below use
+the same account session cookie as chat.
+
+| Request | Account | Result |
+| --- | --- | --- |
+| `GET /api/vault/documents` | Admin | Up to 100 newest metadata rows, including pending or archived files. |
+| `POST /api/vault/documents` | Admin | Multipart fields `title`, `accessLevel`, and one `file`. Accepts PDF, DOCX and XLSX up to 5 MiB. |
+| `PATCH /api/vault/documents/:id` | Admin | JSON object with `title` and `accessLevel`. Modifies metadata only. |
+| `POST /api/vault/documents/:id/archive` | Admin | Archives the document. The stored bytes are not deleted. |
+| `GET /api/documents` | Signed-in user | Only clean, non-archived metadata the account can read. |
+
+Use `public`, `employee`, or `confidential` for `accessLevel`. Here public means
+available to all **signed-in** roles, not anonymous internet access. The existing
+Intern/Employee/Admin access ladder determines who can see each tier. Responses
+contain a `document` or `documents` key with metadata, never file bytes.
+
+A new file is always stored as `pending_scan`. The extension, MIME declaration
+and basic header validation are upload checks, not malware scanning. This
+milestone has no scan-release route, raw file download, text extraction, or RAG
+indexing. Pending files will not appear in the signed-in document list, even
+for an Admin. They are visible in the separate Admin Vault list.
