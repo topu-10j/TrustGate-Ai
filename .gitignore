@@ -3,3 +3,8 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.production.example
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/

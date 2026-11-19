@@ -4,6 +4,7 @@ import { findRequestedRecords } from "./catalog.js";
 import { canRead, isDemoRole } from "./policy.js";
 import { generateAnswer as defaultAnswer } from "./answer.js";
 import { createAuditLog } from "./audit.js";
+import { scanPrompt as defaultScanner } from "./scanner.js";
 
 const BODY_LIMIT = 8 * 1024;
 const SESSION_TTL_MS = 30 * 60 * 1000;
@@ -70,6 +71,7 @@ function configureCors(req, res, allowedOrigins) {
 
 export function createServer({
   generateAnswer = defaultAnswer,
+  scanPrompt = defaultScanner,
   allowedOrigins = DEFAULT_ORIGINS,
   now = Date.now
 } = {}) {
@@ -113,7 +115,7 @@ export function createServer({
       configureCors(req, res, origins);
       const path = req.url.split("?")[0];
 
-      if (req.method === "OPTIONS" && ["/api/demo/session", "/api/chat", "/api/audit"].includes(path)) {
+      if (req.method === "OPTIONS" && ["/api/demo/session", "/api/chat", "/api/audit", "/api/security/scan"].includes(path)) {
         res.writeHead(204);
         return res.end();
       }
@@ -137,6 +139,21 @@ export function createServer({
         }
         const token = issueSession(role);
         return sendJson(res, 201, { token, role, expiresInSeconds: SESSION_TTL_MS / 1000 });
+      }
+
+      if (req.method === "POST" && path === "/api/security/scan") {
+        requireSession(req);
+        const prompt = await readJson(req, "prompt");
+        if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 1000) {
+          throw new ApiError(400, "INVALID_PROMPT", "Enter a prompt of 1–1,000 characters.");
+        }
+        let result;
+        try {
+          result = await scanPrompt(prompt);
+        } catch {
+          throw new ApiError(503, "SCANNER_UNAVAILABLE", "The Python scanner is unavailable. Check the backend setup.");
+        }
+        return sendJson(res, 200, result);
       }
 
       if (req.method === "POST" && path === "/api/chat") {

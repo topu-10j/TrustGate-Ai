@@ -268,3 +268,37 @@ test("the audit endpoint supports an authorized GET preflight from the local fro
   assert.equal(response.headers.get("Access-Control-Allow-Origin"), origin);
   assert.match(response.headers.get("Access-Control-Allow-Headers"), /Authorization/);
 });
+
+test("scanner requires a demo session and validates the prompt before scanning", async (t) => {
+  let calls = 0;
+  const api = await setup(t, { scanPrompt: async () => { calls++; return {}; } });
+  assert.equal((await api.post("/api/security/scan", { prompt: "Hello" })).status, 401);
+  const token = await api.session("intern");
+  assert.equal((await api.post("/api/security/scan", { prompt: " " }, token)).status, 400);
+  assert.equal((await api.post("/api/security/scan", { prompt: "a".repeat(1001) }, token)).status, 400);
+  assert.equal(calls, 0);
+});
+
+test("scanner is separate from role permissions and does not expose internal failures", async (t) => {
+  const api = await setup(t, { scanPrompt: async () => { throw new Error("Private diagnostic"); } });
+  const token = await api.session("intern");
+  const response = await api.post("/api/security/scan", { prompt: "Hello" }, token);
+  assert.equal(response.status, 503);
+  assert.equal(response.body.code, "SCANNER_UNAVAILABLE");
+  assert.doesNotMatch(response.body.message, /Private diagnostic/);
+  assert.equal((await api.post("/api/chat", { message: budgetQuestion }, token)).status, 403);
+});
+
+test("local frontend can preflight the scanner route", async (t) => {
+  const api = await setup(t);
+  const response = await api.request("/api/security/scan", {
+    method: "OPTIONS",
+    headers: {
+      Origin: "http://127.0.0.1:5173",
+      "Access-Control-Request-Method": "POST",
+      "Access-Control-Request-Headers": "content-type,authorization"
+    }
+  });
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), "http://127.0.0.1:5173");
+});
