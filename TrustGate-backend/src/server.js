@@ -3,6 +3,7 @@ import { createServer as createHttpServer } from "node:http";
 import { findRequestedRecords } from "./catalog.js";
 import { canRead, isDemoRole } from "./policy.js";
 import { generateAnswer as defaultAnswer } from "./answer.js";
+import { createAuditLog } from "./audit.js";
 
 const BODY_LIMIT = 8 * 1024;
 const SESSION_TTL_MS = 30 * 60 * 1000;
@@ -74,6 +75,7 @@ export function createServer({
 } = {}) {
   const sessions = new Map();
   const origins = new Set(allowedOrigins);
+  const audit = createAuditLog(now);
 
   function issueSession(role) {
     const time = now();
@@ -111,13 +113,21 @@ export function createServer({
       configureCors(req, res, origins);
       const path = req.url.split("?")[0];
 
-      if (req.method === "OPTIONS" && ["/api/demo/session", "/api/chat"].includes(path)) {
+      if (req.method === "OPTIONS" && ["/api/demo/session", "/api/chat", "/api/audit"].includes(path)) {
         res.writeHead(204);
         return res.end();
       }
 
       if (req.method === "GET" && path === "/health") {
         return sendJson(res, 200, { ok: true, mode: "local-demo" });
+      }
+
+      if (req.method === "GET" && path === "/api/audit") {
+        const { role } = requireSession(req);
+        if (role !== "admin") {
+          throw new ApiError(403, "ACCESS_DENIED", "Only the Admin demo role can view the audit log.");
+        }
+        return sendJson(res, 200, { events: audit.list() });
       }
 
       if (req.method === "POST" && path === "/api/demo/session") {
@@ -139,6 +149,7 @@ export function createServer({
         const question = value.trim();
         const matches = findRequestedRecords(question);
         if (matches.some(({ access }) => !canRead(role, access))) {
+          audit.record({ role, decision: "denied", reasonCode: "ACCESS_DENIED" });
           throw new ApiError(403, "ACCESS_DENIED", "Your demo role cannot access the requested information.");
         }
         if (matches.length !== 1) {
@@ -146,6 +157,7 @@ export function createServer({
         }
 
         // Authorization above must succeed before any answer provider sees this record.
+        audit.record({ role, decision: "allowed", reasonCode: "ACCESS_ALLOWED" });
         const { id, title, content } = matches[0];
         let answer;
         try {

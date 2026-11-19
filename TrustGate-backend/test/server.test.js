@@ -3,6 +3,7 @@ import { once } from "node:events";
 import { test } from "node:test";
 import { createServer } from "../src/server.js";
 import { canRead } from "../src/policy.js";
+import { createAuditLog } from "../src/audit.js";
 
 async function setup(t, options = {}) {
   const server = createServer(options);
@@ -191,4 +192,79 @@ test("the data file is not exposed as a public route", async (t) => {
   const api = await setup(t);
   const response = await api.request("/data/company.json");
   assert.equal(response.status, 404);
+});
+
+async function readAudit(api, token) {
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const response = await api.request("/api/audit", { headers });
+  return { status: response.status, body: await response.json() };
+}
+
+test("the audit log is readable only by the Admin demo role", async (t) => {
+  const api = await setup(t);
+  assert.equal((await readAudit(api)).status, 401);
+  for (const role of ["intern", "employee"]) {
+    const response = await readAudit(api, await api.session(role));
+    assert.equal(response.status, 403);
+    assert.equal(response.body.code, "ACCESS_DENIED");
+    assert.equal(Object.hasOwn(response.body, "events"), false);
+  }
+  assert.deepEqual(await readAudit(api, await api.session("admin")), {
+    status: 200, body: { events: [] }
+  });
+});
+
+test("audit lists newest permission decisions with no question, token, or record content", async (t) => {
+  let time = Date.UTC(2026, 0, 1);
+  const api = await setup(t, { now: () => time });
+  const intern = await api.session("intern");
+  const admin = await api.session("admin");
+  assert.equal((await api.post("/api/chat", { message: budgetQuestion }, intern)).status, 403);
+  time += 1000;
+  assert.equal((await api.post("/api/chat", { message: budgetQuestion }, admin)).status, 200);
+  assert.equal((await api.post("/api/chat", { message: "Unrecognized topic" }, intern)).status, 422);
+
+  const response = await readAudit(api, admin);
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.events, [
+    { timestamp: "2026-01-01T00:00:01.000Z", role: "admin", decision: "allowed", reasonCode: "ACCESS_ALLOWED" },
+    { timestamp: "2026-01-01T00:00:00.000Z", role: "intern", decision: "denied", reasonCode: "ACCESS_DENIED" }
+  ]);
+});
+
+test("an authorized audit entry records access, not provider success", async (t) => {
+  const api = await setup(t, { generateAnswer: async () => { throw new Error("Provider unavailable"); } });
+  const admin = await api.session("admin");
+  assert.equal((await api.post("/api/chat", { message: budgetQuestion }, admin)).status, 502);
+  const audit = await readAudit(api, admin);
+  assert.equal(audit.body.events.length, 1);
+  assert.equal(audit.body.events[0].reasonCode, "ACCESS_ALLOWED");
+});
+
+test("the audit log keeps only the latest 100 entries", () => {
+  let time = 0;
+  const log = createAuditLog(() => time);
+  for (; time < 110; time += 1) {
+    log.record({ role: "intern", decision: "allowed", reasonCode: "ACCESS_ALLOWED" });
+  }
+  const entries = log.list();
+  assert.equal(entries.length, 100);
+  assert.equal(entries[0].timestamp, new Date(109).toISOString());
+  assert.equal(entries.at(-1).timestamp, new Date(10).toISOString());
+});
+
+test("the audit endpoint supports an authorized GET preflight from the local frontend", async (t) => {
+  const api = await setup(t);
+  const origin = "http://127.0.0.1:5173";
+  const response = await api.request("/api/audit", {
+    method: "OPTIONS",
+    headers: {
+      Origin: origin,
+      "Access-Control-Request-Method": "GET",
+      "Access-Control-Request-Headers": "Authorization"
+    }
+  });
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), origin);
+  assert.match(response.headers.get("Access-Control-Allow-Headers"), /Authorization/);
 });

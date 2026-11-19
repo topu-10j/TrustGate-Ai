@@ -33,6 +33,14 @@ try {
     assert.equal(result.status, expected);
     console.log(`${role} | ${message}\n  ${result.status} ${result.body.answer ?? result.body.code}`);
   }
+
+  const audit = await fetch(`${api}/api/audit`, {
+    headers: { Authorization: `Bearer ${admin.body.token}` }
+  });
+  assert.equal(audit.status, 200);
+  const { events } = await audit.json();
+  console.log("\nAdmin audit log | latest access decisions");
+  console.table(events.slice(0, cases.length));
 } catch (error) {
   console.error(error.cause?.code === "ECONNREFUSED"
     ? "Start the backend first with npm start in another terminal."
