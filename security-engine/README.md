@@ -1,4 +1,4 @@
-# Infrasphere AI – Sentinel Security Engine
+# TrustGate Security Engine
 
 Member 3's engine is a standalone Python layer for scanning prompts before an
 AI backend processes them. It detects common prompt-injection and jailbreak
