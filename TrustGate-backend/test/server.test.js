@@ -1,19 +1,13 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
 import { test } from "node:test";
+import { listenForFetch } from "../test-support/http-server.js";
 import { createServer } from "../src/server.js";
 import { canRead } from "../src/policy.js";
 import { createAuditLog } from "../src/audit.js";
 
 async function setup(t, options = {}) {
   const server = createServer(options);
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  t.after(() => new Promise((resolve, reject) => {
-    server.close((error) => error ? reject(error) : resolve());
-  }));
-
-  const base = `http://127.0.0.1:${server.address().port}`;
+  const base = await listenForFetch(t, server);
   function request(path, options) {
     return fetch(base + path, options);
   }

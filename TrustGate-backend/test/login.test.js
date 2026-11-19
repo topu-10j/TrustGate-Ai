@@ -1,16 +1,13 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
 import { test } from "node:test";
+import { listenForFetch } from "../test-support/http-server.js";
 import { createAccountAuthenticator, makeLocalAccount } from "../src/local-accounts.js";
 import { createServer } from "../src/server.js";
 
 async function start(t, options) {
-  const server = createServer(options).listen(0, "127.0.0.1");
-  await once(server, "listening");
-  t.after(() => new Promise((resolve, reject) => {
-    server.close((error) => error ? reject(error) : resolve());
-  }));
-  return (path, opts) => fetch("http://127.0.0.1:" + server.address().port + path, opts);
+  const server = createServer(options);
+  const base = await listenForFetch(t, server);
+  return (path, opts) => fetch(base + path, opts);
 }
 
 const email = (role) => role + "@trustgate.example";

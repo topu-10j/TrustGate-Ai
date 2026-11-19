@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { once } from "node:events";
 import { test } from "node:test";
+import { listenForFetch } from "../test-support/http-server.js";
 import { createServer } from "../src/server.js";
 import { createPostgresVault } from "../src/postgres-vault.js";
 import { MAX_FILE_BYTES } from "../src/vault-upload.js";
@@ -23,10 +23,8 @@ async function app(t, vault, accountSource = "postgres") {
       const role = roles.find((name) => email === name + "@trustgate.example");
       return role ? { role, email } : null;
     }
-  }).listen(0, "127.0.0.1");
-  await once(server, "listening");
-  t.after(() => new Promise((resolve, reject) => server.close((e) => e ? reject(e) : resolve())));
-  const base = "http://127.0.0.1:" + server.address().port;
+  });
+  const base = await listenForFetch(t, server);
   const request = (url, opts) => fetch(base + url, opts);
   return {
     request,

@@ -12,6 +12,11 @@ const options = process.env.FRONTEND_ORIGIN
   : {};
 const loginMode = process.argv.includes("--login");
 const postgresMode = process.argv.includes("--postgres");
+const geminiMode = process.argv.includes("--gemini");
+if (geminiMode && !postgresMode) {
+  console.error("Gemini mode requires PostgreSQL-backed login.");
+  process.exit(1);
+}
 if (loginMode && postgresMode) {
   console.error("Choose one login mode.");
   process.exit(1);
@@ -53,6 +58,18 @@ if (postgresMode) {
     process.exit(1);
   }
 }
+if (geminiMode) {
+  const { withPasswordPrompt } = await import("./password-prompt.js");
+  const { createGeminiAnswerProvider } = await import("./gemini-answer.js");
+  try {
+    const key = process.env.GEMINI_API_KEY || await withPasswordPrompt((secret) => secret("Gemini API key: "));
+    options.generateAnswer = createGeminiAnswerProvider({ apiKey: key, model: process.env.TRUSTGATE_GEMINI_MODEL });
+  } catch (error) {
+    console.error(error.code === "ABORT_ERR" ? "Cancelled." : error.message);
+    await pool?.end();
+    process.exit(1);
+  }
+}
 const server = createServer(options);
 if (pool) server.once("close", () => { void pool.end(); });
 
@@ -66,4 +83,5 @@ server.on("error", (error) => {
 
 server.listen(port, "127.0.0.1", () => {
   console.log(`TrustGate ${postgresMode ? "PostgreSQL login mode" : loginMode ? "local login mode" : "local demo"} running at http://127.0.0.1:${port}`);
+  if (geminiMode) console.log("Gemini is enabled for the approved fictional demo topics.");
 });

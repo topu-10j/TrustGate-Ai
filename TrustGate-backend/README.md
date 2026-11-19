@@ -192,3 +192,27 @@ and basic header validation are upload checks, not malware scanning. This
 milestone has no scan-release route, raw file download, text extraction, or RAG
 indexing. Pending files will not appear in the signed-in document list, even
 for an Admin. They are visible in the separate Admin Vault list.
+
+## Optional live Gemini provider
+
+The default demo, local-account login, and `npm run start:postgres` still use the
+local answer provider and do not need an API key.
+
+1. Create a Gemini API key in Google AI Studio and keep it private.
+2. Run `npm run gemini:check` to verify the key and configured model using only
+   the fictional **public office-hours** record. The command prompts for the key
+   without echoing it. It does not require PostgreSQL or a running server.
+3. To enable Gemini in PostgreSQL-backed chat, stop any previous backend and run
+   `npm run start:gemini`. Enter the database password, followed by the Gemini
+   API key. Alternatively, supply the key in the server's `GEMINI_API_KEY`
+   environment variable. Never store it in frontend configuration or Git.
+   `TRUSTGATE_GEMINI_MODEL` optionally overrides the default
+   `gemini-3.5-flash-lite`.
+
+The backend still authorizes each request and writes the audit decision before
+calling an answer provider. Only the approved fictional office-hours, deadline,
+or budget record and a derived language label go to Gemini. Raw question text,
+user identity, cookies, demo passcodes, and Vault documents stay local.
+Gemini mode is intentionally not Vault retrieval/RAG. The chat API still has
+the same source field and handles one supported topic per question. Provider
+failures return the existing generic `502 ANSWER_UNAVAILABLE`.
