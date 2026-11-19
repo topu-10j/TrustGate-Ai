@@ -95,16 +95,24 @@ export function createServer({
   allowedOrigins = DEFAULT_ORIGINS,
   authenticate,
   accountSource = "local",
-  now = Date.now
+  now = Date.now,
+  audit = createAuditLog(now)
 } = {}) {
   const sessions = new Map();
   const origins = new Set(allowedOrigins);
-  const audit = createAuditLog(now);
   const loginMode = typeof authenticate === "function";
   const mode = loginMode ? (accountSource === "postgres" ? "postgres-login" : "local-login") : "local-demo";
   let loginWindowStart = now();
   let loginAttempts = 0;
   let activeLogins = 0;
+
+  async function useAudit(operation) {
+    try {
+      return await operation();
+    } catch {
+      throw new ApiError(503, "AUDIT_UNAVAILABLE", "The audit log is temporarily unavailable.");
+    }
+  }
 
   // One process-local limit is sufficient for the loopback-only login milestone.
   async function checkLogin(email, password) {
@@ -212,7 +220,7 @@ export function createServer({
         if (role !== "admin") {
           throw new ApiError(403, "ACCESS_DENIED", "Only the Admin role can view the audit log.");
         }
-        return sendJson(res, 200, { events: audit.list() });
+        return sendJson(res, 200, { events: await useAudit(() => audit.list()) });
       }
 
       if (!loginMode && req.method === "POST" && path === "/api/demo/session") {
@@ -249,15 +257,15 @@ export function createServer({
         const question = value.trim();
         const matches = findRequestedRecords(question);
         if (matches.some(({ access }) => !canRead(role, access))) {
-          audit.record({ role, decision: "denied", reasonCode: "ACCESS_DENIED" });
+          await useAudit(() => audit.record({ role, decision: "denied", reasonCode: "ACCESS_DENIED" }));
           throw new ApiError(403, "ACCESS_DENIED", "Your demo role cannot access the requested information.");
         }
         if (matches.length !== 1) {
           throw new ApiError(422, "TOPIC_REQUIRED", "Ask about one supported company topic at a time.");
         }
 
-        // Authorization above must succeed before any answer provider sees this record.
-        audit.record({ role, decision: "allowed", reasonCode: "ACCESS_ALLOWED" });
+        // The access decision must be recorded before an approved record reaches the provider.
+        await useAudit(() => audit.record({ role, decision: "allowed", reasonCode: "ACCESS_ALLOWED" }));
         const { id, title, content } = matches[0];
         let answer;
         try {

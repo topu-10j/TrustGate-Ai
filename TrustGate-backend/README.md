@@ -78,7 +78,7 @@ Live Server বা অন্য static server দিয়ে শুধু **fronte
 
 - Token না থাকলে বা expire হলে `401`। Intern/Employee token থাকলে `403`। Admin UI-তে chat request শেষ হলে বা **Refresh Audit Log** চাপলে আবার `GET` করো। Role বদলালে পুরোনো audit data UI থেকে clear করো।
 - `allowed` মানে permission check পাস করেছে। এটি AI provider সফলভাবে উত্তর দিয়েছে, এমন দাবি নয়। Unknown topic বা validation error এই permission log-এ আসে না।
-- প্রশ্নের লেখা, উত্তর, record ID/value, session token বা API key log করা হয় না। শেষ ১০০টি event থাকে। Backend restart-এ log মুছে যায়। Admin এখানে একটি **demo role**, আসল পরিচয় যাচাই নয়।
+- প্রশ্নের লেখা, উত্তর, record ID/value, session token বা API key log করা হয় না। API সর্বশেষ ১০০টি event দেয়। Default demo বা local JSON login mode-এ backend restart হলে log মুছে যায়। PostgreSQL mode-এ log থাকে। Admin এখানে একটি **demo role**, আসল পরিচয় যাচাই নয়।
 
 ### Prompt Scanner
 
@@ -129,8 +129,8 @@ and HTTPS cookie configuration are separate work.
 
 The default demo (`npm start`) and JSON-backed local login (`npm run start:login`)
 still work. Use the commands below for the separate PostgreSQL-backed mode.
-The frontend login page and persistent audit/session storage are not part of this
-milestone.
+The frontend login page is separate. Sessions are still held in memory,
+so sign in again after a backend restart.
 
 1. Install PostgreSQL and create a non-superuser login role named
    `trustgate_app` and a database named `trustgate` owned by that role.
@@ -149,3 +149,20 @@ milestone.
    logout endpoints and the HttpOnly cookie contract are unchanged.
 4. On PowerShell, use `npm.cmd` in place of `npm` if needed. Tests can be run
    with `npm test` without connecting to your local database.
+
+
+## PostgreSQL audit history
+
+In PostgreSQL login mode, `npm run start:postgres` automatically creates the
+`trustgate_audit_events` table if it does not exist. Existing accounts do not
+need to be recreated. The default demo and JSON login modes keep their separate,
+in-memory audit history.
+
+The Admin-only `GET /api/audit` contract remains `{ events: [...] }` with the
+newest 100 decisions. The database keeps audit history across backend restarts.
+Only timestamp, role, decision and reason code are returned. Prompts, answers,
+record details and tokens are not stored in the audit table.
+
+If the audit store is unavailable, audit reads and attempts that need to record
+an access decision return `503 AUDIT_UNAVAILABLE`. An approved record is not
+sent to the answer provider unless its permission decision has been saved.
