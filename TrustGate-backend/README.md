@@ -124,3 +124,28 @@ use a Vite proxy or `credentials: "include"` with the same hostname on both port
 The login CLI is loopback-only. Accounts are local, and sessions are in memory.
 The local cookie uses HTTP. Public deployment, a database-backed account store
 and HTTPS cookie configuration are separate work.
+
+## PostgreSQL account login
+
+The default demo (`npm start`) and JSON-backed local login (`npm run start:login`)
+still work. Use the commands below for the separate PostgreSQL-backed mode.
+The frontend login page and persistent audit/session storage are not part of this
+milestone.
+
+1. Install PostgreSQL and create a non-superuser login role named
+   `trustgate_app` and a database named `trustgate` owned by that role.
+   The default connection is `127.0.0.1:5432`. If needed, override `PGHOST`,
+   `PGPORT`, `PGUSER` and `PGDATABASE`.
+2. In `TrustGate-backend`, run `npm ci` and then `npm run postgres:setup`.
+   Enter the database connection password, then choose a separate password
+   of at least 5 characters for each TrustGate account. Prompts do not echo
+   the input. The transaction creates `trustgate_accounts` and inserts
+   `intern@trustgate.example`, `employee@trustgate.example` and
+   `admin@trustgate.example` with scrypt hashes and salts. Setup does not
+   overwrite existing accounts.
+3. Stop any old backend and run `npm run start:postgres`. Enter only the
+   database connection password at startup. The application does not save it
+   to a file. `GET /health` shows `mode: "postgres-login"`. The login, me and
+   logout endpoints and the HttpOnly cookie contract are unchanged.
+4. On PowerShell, use `npm.cmd` in place of `npm` if needed. Tests can be run
+   with `npm test` without connecting to your local database.

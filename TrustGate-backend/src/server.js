@@ -94,12 +94,14 @@ export function createServer({
   scanPrompt = defaultScanner,
   allowedOrigins = DEFAULT_ORIGINS,
   authenticate,
+  accountSource = "local",
   now = Date.now
 } = {}) {
   const sessions = new Map();
   const origins = new Set(allowedOrigins);
   const audit = createAuditLog(now);
   const loginMode = typeof authenticate === "function";
+  const mode = loginMode ? (accountSource === "postgres" ? "postgres-login" : "local-login") : "local-demo";
   let loginWindowStart = now();
   let loginAttempts = 0;
   let activeLogins = 0;
@@ -172,7 +174,7 @@ export function createServer({
       }
 
       if (req.method === "GET" && path === "/health") {
-        return sendJson(res, 200, { ok: true, mode: loginMode ? "local-login" : "local-demo" });
+        return sendJson(res, 200, { ok: true, mode });
       }
 
       if (loginMode && req.method === "POST" && path === "/api/auth/login") {

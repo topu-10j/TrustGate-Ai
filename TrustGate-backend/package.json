@@ -3,13 +3,20 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node src/index.js",
     "start:login": "node src/index.js --login",
     "login:setup": "node scripts/setup-login.js",
     "dev": "node --watch src/index.js",
     "test": "node --test",
-    "demo": "node scripts/demo.js"
+    "demo": "node scripts/demo.js",
+    "postgres:setup": "node scripts/setup-postgres.js",
+    "start:postgres": "node src/index.js --postgres"
+  },
+  "dependencies": {
+    "pg": "8.23.1"
   }
 }

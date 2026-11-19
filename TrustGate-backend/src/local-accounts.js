@@ -20,7 +20,7 @@ export function validCredentials(email, password) {
 
 export async function makeLocalAccount(email, role, password) {
   email = normalizeEmail(email);
-  if (!isDemoRole(role) || !validCredentials(email, password) || password.length < 16) {
+  if (!isDemoRole(role) || !validCredentials(email, password) || password.length < 5) {
     throw new Error("Invalid account configuration.");
   }
   const salt = randomBytes(16);
@@ -37,31 +37,35 @@ function decode(value, bytes) {
   return decoded;
 }
 
-export function createAccountAuthenticator(records) {
-  if (!Array.isArray(records) || !records.length) throw new Error("Invalid account store.");
-  const accounts = new Map();
-  for (const record of records) {
-    const email = normalizeEmail(record?.email);
-    if (!email || email.length > 254 || !emailPattern.test(email) ||
-        !isDemoRole(record.role) || accounts.has(email)) {
-      throw new Error("Invalid account store.");
-    }
-    accounts.set(email, {
-      email,
-      role: record.role,
-      salt: decode(record.salt, 16),
-      hash: decode(record.hash, 32)
-    });
+function parseAccount(record) {
+  const email = normalizeEmail(record?.email);
+  if (!email || email.length > 254 || !emailPattern.test(email) || !isDemoRole(record.role)) {
+    throw new Error("Invalid account store.");
   }
-  const missing = { salt: randomBytes(16), hash: randomBytes(32) };
+  return { email, role: record.role, salt: decode(record.salt, 16), hash: decode(record.hash, 32) };
+}
 
-  return async function authenticate(email, password) {
-    const account = accounts.get(email);
+export function createPasswordVerifier() {
+  const missing = { salt: randomBytes(16), hash: randomBytes(32) };
+  return async function verifyPassword(record, password) {
+    const account = record ? parseAccount(record) : null;
     const { salt, hash } = account ?? missing;
     const derived = await derive(password, salt, hash.length, cost);
     const matches = timingSafeEqual(derived, hash);
     return account && matches ? { email: account.email, role: account.role } : null;
   };
+}
+
+export function createAccountAuthenticator(records) {
+  if (!Array.isArray(records) || !records.length) throw new Error("Invalid account store.");
+  const accounts = new Map();
+  for (const record of records) {
+    const { email } = parseAccount(record);
+    if (accounts.has(email)) throw new Error("Invalid account store.");
+    accounts.set(email, record);
+  }
+  const verifyPassword = createPasswordVerifier();
+  return (email, password) => verifyPassword(accounts.get(email), password);
 }
 
 export async function loadLocalAuthenticator(path = localAccountsPath) {
