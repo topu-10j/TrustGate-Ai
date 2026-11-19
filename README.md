@@ -6,8 +6,26 @@ before passing any company record to the answer provider.
 ## Project status
 
 - Backend access gate and Admin audit log: verified locally with 19 passing tests.
-- Web chat UI: pending integration.
+- Frontend dashboard, prompt scanner, secure chat and event logs: available in `frontend/`.
+- Frontend-to-backend API integration: pending; the current backend demo exposes a different API contract.
 - Live AI provider: pending. The current demo uses fictional data and a local answer function.
+
+## Run the frontend
+
+In PowerShell, from the repository root:
+
+```powershell
+cd .\frontend
+npm install
+Copy-Item .env.example .env
+npm run dev
+```
+
+The frontend expects `/api/security/scan`, `/api/ai/chat`,
+`/api/security/stats` and `/api/security/events` at `http://localhost:8000`.
+The current demo backend instead exposes `/api/demo/session`, `/api/chat` and
+`/api/audit`; a compatible backend or API adapter is needed to connect them.
+See [frontend setup and API details](frontend/README.md).
 
 ## Try the backend demo
 
