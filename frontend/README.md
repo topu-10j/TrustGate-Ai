@@ -1,90 +1,51 @@
-# TrustGate – AI Security Platform (Frontend)
+# TrustGate Frontend
 
-React + Vite frontend for the TrustGate AI security platform. The existing dark / lime theme and dark/light themes are retained.
+The React/Vite UI ships a no-sign-in role demo for the existing TrustGate
+backend. It uses fictional company records and the local answer function.
 
-## Requirements
-- Node.js 18.18+ (Node 20 LTS recommended)
-- npm 9+
+## Start
 
-## Run on Windows (PowerShell)
-```bash
-cd .\frontend
-npm install
-Copy-Item .env.example .env
-npm run dev
-```
-Open the URL printed by Vite (normally http://localhost:5173).
+Use Node.js 22 or later. Start the backend first from TrustGate-backend:
 
-## Production build
-```bash
-npm run build
-npm run preview
-```
+    npm.cmd start
 
-## Stage 1 finalization
-- Existing pages, sidebar navigation and responsive shell retained.
-- Dark/light theme preference persists in localStorage.
-- Responsive mobile sidebar and horizontally scrollable data tables.
-- Vite production build is the verification command: `npm run build`.
+With the backend running, open another terminal in frontend:
 
-## Frontend functionality
-- Prompt Scanner sends prompts to the backend and displays its risk score, risk level, threat type, decision and masked prompt.
-- Secure Chat sends messages to the backend, shows conversation history and never displays the backend reply when the request is blocked.
-- Firewall Logs loads scan and threat events from the backend and supports search, filters, refresh and CSV export.
-- Dashboard loads request statistics from `/api/security/stats` and charts risk and event activity from `/api/security/events`.
-- Loading and API error states are shown. No local or simulated security result is substituted when the backend is unavailable.
+    npm.cmd ci
+    npm.cmd run dev
 
-## Backend API contract
-Base URL: `VITE_API_BASE_URL` (default `http://localhost:8000`)
+Open http://127.0.0.1:5173 for the original Dashboard. Use Secure Chat to select a demo role. Use npm rather than npm.cmd on macOS/Linux.
+Start the Node backend with Python 3.12+ available if you also want Prompt Scanner.
+No .env file is needed for the default backend at http://127.0.0.1:3000.
+If the backend URL changes, create a frontend .env from .env.example and
+restart Vite. If the frontend origin changes, set FRONTEND_ORIGIN in the
+backend terminal to that exact origin and restart the backend.
 
-- `POST /api/security/scan` body: `{ "prompt": "..." }`
-- `POST /api/ai/chat` body: `{ "message": "..." }`
-- `GET /api/security/stats`
-- `GET /api/security/events`
+## API integration
 
-Expected scan fields: `risk_score`, `risk_level`, `threats`, `decision`, `masked_prompt`.
-Expected chat fields: `reply`, `decision`, `risk_score`, `risk_level` (optional `threats`).
+| Function | Endpoint | Behavior |
+| --- | --- | --- |
+| Backend status | GET /health | Shows connection status independently of permission results |
+| Demo role | POST /api/demo/session | Gets a new token for the selected role and resets chat/audit UI |
+| Ask a question | POST /api/chat | Shows answer on success and Access Denied on a permission block |
+| Admin audit log | GET /api/audit | Uses the Admin session token, shows newest decisions first |
+| Prompt scanner | POST /api/security/scan | Uses a demo token, returns risk, decision and masked text from Python |
 
-## Project structure
-```text
-src/
-  components/   shared layout, navigation and UI components
-  pages/        Dashboard, Live Monitor, Secure Chat, Logs, Analytics, Settings
-  services/     Axios API client
-  App.jsx       routes and theme state
-  main.jsx      React entry point
-  index.css     theme tokens, layout and responsive styles
-```
+Session tokens stay in memory. Changing role removes the prior chat and audit
+panel and cancels old requests in the UI. The displayed audit rows contain only
+timestamps, roles, decisions, and reason codes. A permission allow is not a
+claim that a live AI provider ran.
 
+The scanner is a separate run of the Python engine and does not change chat
+permissions. Dashboard and Analytics summarize audit decisions, not scanner
+risk. Firewall Logs can search, filter, and export the same audit records.
+Live AI is not connected.
 
-## Backend integration
+## Build check
 
-### Frontend integration behavior
-- The top bar checks `GET /api/security/stats` at startup and every 20 seconds and shows API Connected or API Offline.
-- Settings includes a manual backend connection test.
-- Axios uses the agreed routes: `POST /api/security/scan`, `POST /api/ai/chat`, `GET /api/security/stats`, `GET /api/security/events`.
-- The frontend requires the backend and surfaces connection errors instead of showing fabricated scan results or chat replies.
+    npm.cmd run build
+    npm.cmd run preview
 
-### Backend requirements for Member 1
-1. Enable CORS for the Vite origin `http://localhost:5173` (and the deployed frontend origin).
-2. Keep provider API keys on the backend only; never add secrets to `VITE_*` variables.
-3. Return JSON from the four routes above. `/api/security/stats` should return an object; `/api/security/events` may return an array or `{ "events": [] }`.
-4. For `/api/security/scan`, accept `{ "prompt": "..." }` and return `risk_score`, `risk_level`, `threats`, `decision`, `masked_prompt`.
-5. For `/api/ai/chat`, accept `{ "message": "..." }` and return `reply`, `decision`, `risk_score`, `risk_level` (and optionally `threats`).
-
-### Start the backend and frontend
-1. Start Member 1's backend on `http://localhost:8000`.
-2. Ensure backend CORS permits `http://localhost:5173`.
-3. In the frontend directory, set `VITE_API_BASE_URL=http://localhost:8000` in `.env`.
-4. Run `npm run dev` and open `http://localhost:5173`.
-
-### Local release checklist
-```bash
-npm install
-npm run build
-npm run preview
-```
-Open the preview URL printed by Vite. Verify all routes, theme toggle, scan, chat, log search/filter/export, and API status. The API status indicator verifies only that the stats endpoint responds; it is not a full backend health/security audit.
-
-### Deployment configuration
-Set `VITE_API_BASE_URL` to the deployed backend URL for the production build. Rebuild after changing Vite environment variables. Configure backend CORS for the deployed frontend domain.
+Stop the dev server before preview. Both use port 5173 by default, an origin
+allowed by the local TrustGate backend. Review the Intern deny, Admin answer,
+and Admin audit log against the running backend. The search placeholder and notification icon in the original header are visual controls only.

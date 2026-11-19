@@ -8,6 +8,7 @@ import SecureChat from "./pages/SecureChat";
 import FirewallLogs from "./pages/FirewallLogs";
 import Analytics from "./pages/Analytics";
 import Settings from "./pages/Settings";
+import { DemoWorkspace } from "./state/DemoWorkspace";
 
 export default function App() {
   const [theme, setTheme] = useState(() => { try { return localStorage.getItem("trustgate-theme") || "dark"; } catch { return "dark"; } });
@@ -19,17 +20,19 @@ export default function App() {
   }, [theme]);
 
   return (
-    <Routes>
-      <Route element={<Layout theme={theme} setTheme={setTheme} />}>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/monitor" element={<LiveMonitor />} />
-        <Route path="/analysis" element={<AIAnalysis />} />
-        <Route path="/chat" element={<SecureChat />} />
-        <Route path="/logs" element={<FirewallLogs />} />
-        <Route path="/analytics" element={<Analytics />} />
-        <Route path="/settings" element={<Settings theme={theme} setTheme={setTheme} />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <DemoWorkspace>
+      <Routes>
+        <Route element={<Layout theme={theme} setTheme={setTheme} />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/monitor" element={<LiveMonitor />} />
+          <Route path="/analysis" element={<AIAnalysis />} />
+          <Route path="/chat" element={<SecureChat />} />
+          <Route path="/logs" element={<FirewallLogs />} />
+          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/settings" element={<Settings theme={theme} setTheme={setTheme} />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </DemoWorkspace>
   );
 }

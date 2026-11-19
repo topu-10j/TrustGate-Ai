@@ -1,98 +1,78 @@
 import axios from "axios";
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
-const client = axios.create({
-  baseURL: BASE_URL,
-  timeout: 10000,
-  headers: { "Content-Type": "application/json" },
-});
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
+export const API_MODE = "local demo";
 
-export const API_MODE = "backend";
-export const API_BASE_URL = BASE_URL;
+const client = axios.create({ baseURL: API_BASE_URL, timeout: 10000 });
 
-function getErrorMessage(error) {
-  if (axios.isAxiosError(error)) {
-    const detail = error.response?.data?.detail || error.response?.data?.message;
-    if (detail) return String(detail);
-    if (error.response) return `API error ${error.response.status}`;
-    if (error.code === "ECONNABORTED") return "Backend request timed out";
-    return "Backend unavailable. Check that the API server is running.";
+class ApiError extends Error {
+  constructor(message, status, code) {
+    super(message);
+    this.status = status;
+    this.code = code;
   }
-  return error instanceof Error ? error.message : "Unexpected API error";
 }
 
-function requireObject(data, endpoint) {
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    throw new Error(`${endpoint} returned an invalid response`);
-  }
-  return data;
-}
-
-export async function scanPrompt(prompt) {
+async function request(method, url, { data, token, signal } = {}) {
   try {
-    const { data } = await client.post("/api/security/scan", { prompt });
-    return requireObject(data, "Security scan");
-  } catch (error) {
-    throw new Error(getErrorMessage(error));
-  }
-}
-
-export async function sendChat(message) {
-  try {
-    const { data } = await client.post("/api/ai/chat", { message });
-    return requireObject(data, "AI chat");
-  } catch (error) {
-    throw new Error(getErrorMessage(error));
-  }
-}
-
-export async function getStats() {
-  try {
-    const { data } = await client.get("/api/security/stats");
-    return requireObject(data, "Security statistics");
-  } catch (error) {
-    throw new Error(getErrorMessage(error));
-  }
-}
-
-function normalizeEvent(event, index) {
-  return {
-    ...event,
-    id: event.id || event.event_id || `API-${index + 1}`,
-    type: event.type || event.threat || event.event_type || "Security event",
-    source: event.source || "Backend API",
-    risk: String(event.risk_level || event.risk || "UNKNOWN").toUpperCase(),
-    risk_score: event.risk_score,
-    decision: String(event.decision || event.action || "UNKNOWN").toUpperCase(),
-    timestamp: event.timestamp || event.created_at || null,
-    promptPreview: event.prompt_preview || "",
-  };
-}
-
-export async function getBackendEvents() {
-  try {
-    const { data } = await client.get("/api/security/events");
-    const events = Array.isArray(data) ? data : data?.events || data?.items;
-    if (!Array.isArray(events)) {
-      throw new Error("Security events returned an invalid response");
+    const response = await client.request({
+      method,
+      url,
+      data,
+      signal,
+      headers: token ? { Authorization: "Bearer " + token } : undefined,
+    });
+    const body = response.data;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      throw new ApiError("TrustGate returned an unexpected response.");
     }
-    return events.map(normalizeEvent);
+    return body;
   } catch (error) {
-    throw new Error(getErrorMessage(error));
+    if (axios.isCancel(error) || !axios.isAxiosError(error)) throw error;
+    if (error.response) {
+      const { status, data } = error.response;
+      throw new ApiError(
+        typeof data?.message === "string" ? data.message : "Backend error (" + status + ").",
+        status,
+        data?.code
+      );
+    }
+    throw new ApiError(error.code === "ECONNABORTED"
+      ? "The backend request timed out. Try again."
+      : "Cannot reach the TrustGate backend. Check that it is running.");
   }
 }
 
-export async function checkBackendConnection() {
+export async function createDemoSession(role, signal) {
+  const data = await request("POST", "/api/demo/session", { data: { role }, signal });
+  if (typeof data.token !== "string" || data.role !== role) {
+    throw new ApiError("TrustGate returned an invalid demo session.");
+  }
+  return data.token;
+}
+
+export async function sendChat(message, token, signal) {
+  const data = await request("POST", "/api/chat", { data: { message }, token, signal });
+  if (typeof data.answer !== "string") throw new ApiError("TrustGate returned no answer.");
+  return data.answer;
+}
+
+export async function scanPrompt(prompt, token, signal) {
+  return request("POST", "/api/security/scan", { data: { prompt }, token, signal });
+}
+
+export async function getAuditEvents(token, signal) {
+  const data = await request("GET", "/api/audit", { token, signal });
+  if (!Array.isArray(data.events)) throw new ApiError("TrustGate returned an invalid audit log.");
+  return data.events;
+}
+
+export async function checkBackendConnection(signal) {
   try {
-    await getStats();
-    return { connected: true, mode: API_MODE, baseUrl: BASE_URL, checkedAt: new Date().toISOString() };
+    const { ok, mode } = await request("GET", "/health", { signal });
+    if (ok !== true) throw new ApiError("The backend is not ready.");
+    return { connected: true, mode, baseUrl: API_BASE_URL };
   } catch (error) {
-    return {
-      connected: false,
-      mode: API_MODE,
-      baseUrl: BASE_URL,
-      checkedAt: new Date().toISOString(),
-      error: error.message,
-    };
+    return { connected: false, mode: API_MODE, baseUrl: API_BASE_URL, error: error.message };
   }
 }

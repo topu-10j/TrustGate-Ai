@@ -51,7 +51,7 @@ export default function Sidebar({ open, setOpen }) {
         <div className="panel-soft p-3">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--accent)] text-xs font-bold text-white">TG</div>
-            <div className="min-w-0"><p className="truncate text-xs font-semibold text-main">TrustGate Admin</p><p className="text-[10px] text-muted">Workspace preview</p></div>
+            <div className="min-w-0"><p className="truncate text-xs font-semibold text-main">TrustGate Demo</p><p className="text-[10px] text-muted">No sign-in required</p></div>
             <ShieldCheck className="ml-auto accent-text" size={17}/>
           </div>
         </div>

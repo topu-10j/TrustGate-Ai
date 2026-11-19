@@ -80,6 +80,15 @@ Live Server বা অন্য static server দিয়ে শুধু **fronte
 - `allowed` মানে permission check পাস করেছে। এটি AI provider সফলভাবে উত্তর দিয়েছে, এমন দাবি নয়। Unknown topic বা validation error এই permission log-এ আসে না।
 - প্রশ্নের লেখা, উত্তর, record ID/value, session token বা API key log করা হয় না। শেষ ১০০টি event থাকে। Backend restart-এ log মুছে যায়। Admin এখানে একটি **demo role**, আসল পরিচয় যাচাই নয়।
 
+### Prompt Scanner
+
+`POST /api/security/scan`-এ demo bearer token এবং `{"prompt":"Contact demo@example.com"}`
+পাঠাও। API সর্বোচ্চ ১,০০০ অক্ষর নেয়। ফলাফলে `risk_score`, `risk_level`,
+`decision`, `threats` (category names), আর `masked_prompt` আসে। Python 3.12+
+লাগবে, কোনো Python package ইনস্টল লাগবে না। প্রয়োজনে `TRUSTGATE_PYTHON`-এ
+interpreter-এর absolute path দাও। Python না চললে scan `503 SCANNER_UNAVAILABLE`
+দেবে, তবে chat আর audit চলবে। Scan-এর input বা result audit log-এ লেখা হয় না।
+
 ## AI teammate-এর integration point
 
 `src/answer.js`-এর `generateAnswer({ question, record })` function replace করো। অনুমোদিত হলে backend শুধু user question এবং একটি record-এর `id`, `title`, `content` পাঠায়। Function-এর return value একটি string। Provider call server-side রাখো এবং API key environment variable থেকে নাও। Model-কে পুরো catalog, role নির্ধারণের দায়িত্ব বা data-fetching tool দিও না। Blocked request-এ function call-ই হয় না। Test suite এটা যাচাই করে।
