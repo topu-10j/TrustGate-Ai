@@ -28,6 +28,7 @@ export const login = (email, password, signal) => request("POST", "/api/auth/log
 export const getCurrentUser = (signal) => request("GET", "/api/auth/me", { signal });
 export const logout = (signal) => request("POST", "/api/auth/logout", { signal });
 export const sendChat = async (message, signal) => { const data=await request("POST", "/api/chat", { data: { message }, signal }); if(typeof data?.answer!=="string") throw new ApiError("TrustGate returned no chat answer."); return data; };
+export const resetChatContext = (signal) => request("POST", "/api/chat/reset", { signal });
 export const scanPrompt = async (prompt, signal) => { const data=await request("POST", "/api/security/scan", { data: { prompt }, signal }); if(!data || typeof data!=="object") throw new ApiError("TrustGate returned an invalid scan result."); return data; };
 export const getAuditEvents = async (signal) => { const data = await request("GET", "/api/audit", { signal }); if (!Array.isArray(data?.events)) throw new ApiError("TrustGate returned an invalid audit log."); return data.events; };
 export const getIncidents = async (signal) => { const data = await request("GET", "/api/security/incidents", { signal }); if (!Array.isArray(data?.incidents)) throw new ApiError("TrustGate returned an invalid incidents response."); return data.incidents; };
@@ -38,6 +39,11 @@ export const uploadVaultDocument = (formData, signal) => request("POST", "/api/v
 export const updateVaultDocument = (id, payload, signal) => request("PATCH", `/api/vault/documents/${encodeURIComponent(id)}`, { data: payload, signal });
 export const archiveVaultDocument = (id, signal) => request("POST", `/api/vault/documents/${encodeURIComponent(id)}/archive`, { signal });
 export const updateVaultScopes = (id, scopes, signal) => request("POST", `/api/vault/documents/${encodeURIComponent(id)}/scopes`, { data: { scopes }, signal });
+export async function getAccountScopes(email, signal) {
+  const data = await request("GET", "/api/admin/account-scopes", { params: { email }, signal });
+  if (!Array.isArray(data?.scopes)) throw new ApiError("TrustGate returned an invalid account scope list.");
+  return data.scopes;
+}
 export const updateAccountScopes = (email, scopes, signal) => request("POST", "/api/admin/account-scopes", { data: { email, scopes }, signal });
 export function openAlertsStream(onIncident, onError) {
   // Native EventSource supports cookies when withCredentials is true; no token is exposed to JS.

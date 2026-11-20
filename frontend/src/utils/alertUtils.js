@@ -1,7 +1,24 @@
+export function incidentId(event) {
+  const id = String(event?.id ?? "");
+  return typeof event?.type === "string" && typeof event?.severity === "string" && /^\d{1,18}$/.test(id) ? id : null;
+}
+
 export function alertIdentity(event) {
+  const id = incidentId(event);
+  if (id !== null) return "incident:" + id;
   const explicit = event?.id ?? event?.eventId ?? event?.event_id;
   if (explicit !== undefined && explicit !== null && String(explicit).length) return String(explicit);
   return [event?.timestamp ?? "no-timestamp", event?.role ?? "unknown-role", event?.decision ?? "unknown-decision", event?.reasonCode ?? "no-reason", event?.source ?? "", event?.message ?? ""].join("|");
+}
+
+export function alertDestination(event) {
+  const incident = incidentId(event);
+  if (incident !== null) return `/?incident=${incident}#security-incidents`;
+  const params = new URLSearchParams({
+    event: event?.timestamp ?? event?.id ?? "", role: event?.role ?? "",
+    decision: event?.decision ?? "", reason: event?.reasonCode ?? ""
+  });
+  return "/logs?" + params;
 }
 
 const storageKey = (role) => `trustgate-alert-read:${role}`;

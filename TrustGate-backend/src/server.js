@@ -166,7 +166,7 @@ export function createServer({
       throw new ApiError(429, "SESSION_LIMIT", "Too many active sessions.");
     }
     const token = randomBytes(32).toString("base64url");
-    sessions.set(token, { role, email, expiresAt: time + SESSION_TTL_MS });
+    sessions.set(token, { role, email, expiresAt: time + SESSION_TTL_MS, chatRevision: 0 });
     return token;
   }
 
@@ -189,7 +189,7 @@ export function createServer({
     catch { throw new ApiError(503, "SCANNER_UNAVAILABLE", "The scanner is temporarily unavailable."); }
   }
 
-  async function integratedChat(res, session, question, matches) {
+  async function integratedChat(res, session, question, matches, chatRevision, previousQuestion) {
     const { role } = session;
     const warnings = [];
     const addWarning = (stage, scan) => {
@@ -220,7 +220,7 @@ export function createServer({
         "Hi! Ask me about company information you are allowed to access.";
       return reply({ answer, source: null, sources: [] });
     }
-    const lookup = followUpQuery(masked, session.lastQuestion);
+    const lookup = followUpQuery(masked, previousQuestion);
     const rows = await useVault(() => knowledge.search(lookup, role, session.email));
     let sources;
     try { sources = await groundedSources(rows, scanPrompt); }
@@ -256,7 +256,7 @@ export function createServer({
       throw new ApiError(502, "ANSWER_BLOCKED", "The answer was blocked by the security scanner.");
     }
     addWarning("output", output);
-    session.lastQuestion = lookup;
+    if (session.chatRevision === chatRevision) session.lastQuestion = lookup;
     return reply({ answer: output.masked_prompt, source: citations[0], sources: citations });
   }
 
@@ -282,7 +282,8 @@ export function createServer({
       const supportedPaths = loginMode
         ? [...DEMO_PATHS.filter((route) => route !== "/api/demo/session"), ...LOGIN_PATHS]
         : DEMO_PATHS;
-      if (req.method === "OPTIONS" && (supportedPaths.includes(path) || isVaultPath || incidentPath)) {
+      const chatResetPath = hasKnowledge && path === "/api/chat/reset";
+      if (req.method === "OPTIONS" && (supportedPaths.includes(path) || isVaultPath || incidentPath || chatResetPath)) {
         res.writeHead(204);
         return res.end();
       }
@@ -445,9 +446,17 @@ export function createServer({
         return sendJson(res, 200, result);
       }
 
+      if (req.method === "POST" && chatResetPath) {
+        const session = requireSession(req);
+        session.chatRevision++;
+        delete session.lastQuestion;
+        res.writeHead(204);
+        return res.end();
+      }
+
       if (req.method === "POST" && path === "/api/chat") {
         const session = requireSession(req);
-        const { role } = session;
+        const { role, chatRevision, lastQuestion } = session;
         const value = await readJson(req, "message");
         if (typeof value !== "string" || value.trim().length === 0 || value.length > 500) {
           throw new ApiError(400, "INVALID_MESSAGE", "Enter a message of 1–500 characters.");
@@ -460,7 +469,7 @@ export function createServer({
           throw new ApiError(403, "ACCESS_DENIED", "Your demo role cannot access the requested information.");
         }
         if (hasKnowledge) {
-          return await integratedChat(res, session, question, matches);
+          return await integratedChat(res, session, question, matches, chatRevision, lastQuestion);
         }
         if (matches.length !== 1) {
           throw new ApiError(422, "TOPIC_REQUIRED", "Ask about one supported company topic at a time.");

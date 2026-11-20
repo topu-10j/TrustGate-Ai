@@ -21,6 +21,7 @@ This existing React/Vite frontend is wired to the cookie-session backend contrac
 | Restore | GET `/api/auth/me` | cookie session restore |
 | Logout | POST `/api/auth/logout` | handles 204 |
 | Chat | POST `/api/chat` `{message}` | `answer` and only returned `sources` |
+| Reset chat | POST `/api/chat/reset` with the session cookie | `204`; New Chat and Clear forget the last server-side query |
 | Scanner | POST `/api/security/scan` `{prompt}` | 401, ACCESS_DENIED, PROMPT_BLOCKED errors handled |
 | Documents | GET `/api/documents` | role-filtered list for signed-in users |
 | Vault list | GET `/api/vault/documents` | Admin management metadata |
