@@ -1,7 +1,8 @@
 import { NavLink } from "react-router-dom";
+import { useWorkspace, roleLabels } from "../state/AuthWorkspace";
 import {
   Shield, LayoutDashboard, RadioTower, ScanSearch, MessageSquareText,
-  ScrollText, ChartNoAxesCombined, Settings, LifeBuoy, X, ShieldCheck
+  ScrollText, ChartNoAxesCombined, Settings, LifeBuoy, X, ShieldCheck, LogOut, LockKeyhole, FileText
 } from "lucide-react";
 
 const groups = [
@@ -10,14 +11,18 @@ const groups = [
     { label: "Prompt Scanner", to: "/monitor", icon: RadioTower },
     { label: "AI Analysis", to: "/analysis", icon: ScanSearch },
     { label: "Secure Chat", to: "/chat", icon: MessageSquareText },
+    { label: "Documents", to: "/documents", icon: FileText },
   ]},
   { label: "SECURITY CENTER", links: [
     { label: "Firewall Logs", to: "/logs", icon: ScrollText },
     { label: "Analytics", to: "/analytics", icon: ChartNoAxesCombined },
+    { label: "Admin Vault", to: "/vault", icon: LockKeyhole },
   ]},
 ];
 
-export default function Sidebar({ open, setOpen }) {
+export default function Sidebar({ open, setOpen, onLogout }) {
+  const { role } = useWorkspace();
+  const visibleGroups = role === "admin" ? groups : groups.map(group => ({...group, links: group.links.filter(link => link.to !== "/logs" && link.to !== "/analytics" && link.to !== "/vault")})).filter(group => group.links.length);
   return <>
     {open && <button aria-label="Close navigation" onClick={() => setOpen(false)} className="fixed inset-0 z-40 bg-black/60 lg:hidden" />}
     <aside className={`desktop-sidebar sidebar-bg fixed inset-y-0 left-0 z-50 flex w-[218px] flex-col border-r border-ui transition-transform duration-300 lg:translate-x-0 ${open ? "open" : ""}`}>
@@ -30,7 +35,7 @@ export default function Sidebar({ open, setOpen }) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-7">
-        {groups.map(group => <div key={group.label} className="mb-8">
+        {visibleGroups.map(group => <div key={group.label} className="mb-8">
           <p className="mb-3 px-3 text-[10px] font-bold tracking-[.2em] text-subtle">{group.label}</p>
           <nav className="space-y-1">
             {group.links.map(link => {
@@ -51,11 +56,11 @@ export default function Sidebar({ open, setOpen }) {
         <div className="panel-soft p-3">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--accent)] text-xs font-bold text-white">TG</div>
-            <div className="min-w-0"><p className="truncate text-xs font-semibold text-main">TrustGate Demo</p><p className="text-[10px] text-muted">No sign-in required</p></div>
+            <div className="min-w-0"><p className="truncate text-xs font-semibold text-main">TrustGate Workspace</p><p className="text-[10px] text-muted">{roleLabels[role]} access</p></div>
             <ShieldCheck className="ml-auto accent-text" size={17}/>
           </div>
         </div>
-        <div className="mt-3 flex items-center gap-2 px-2 text-[10px] text-subtle"><LifeBuoy size={13}/> TrustGate Security Console · v1.0</div>
+        <button onClick={onLogout} className="mt-3 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[11px] text-muted transition hover:bg-[var(--panel-2)] hover:text-main"><LogOut size={14}/> Sign out</button><div className="mt-2 flex items-center gap-2 px-2 text-[10px] text-subtle"><LifeBuoy size={13}/> TrustGate Security Console · v1.0</div>
       </div>
     </aside>
   </>;

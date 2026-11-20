@@ -60,7 +60,7 @@ async function setup(t, options = {}) {
       patch: (path, value) => request(path, json("PATCH", value, cookie))
     };
   }
-  return { login, incidents };
+  return { login, incidents, request };
 }
 
 test("grounded chat passes only masked question and approved excerpts, and cites source IDs locally", async (t) => {
@@ -94,6 +94,51 @@ test("grounded chat passes only masked question and approved excerpts, and cites
   const denied = await employee.chat("What is the confidential budget?");
   assert.equal(denied.status, 403);
   assert.equal(calls.length, 2);
+});
+
+test("chat reset needs a valid session and clears context only for that session", async (t) => {
+  const api = await setup(t, { knowledge: {
+    async search(question) {
+      return question.includes("Orientation") ? [{ id: "fixture", title: "Museum note", body: "Orientation is Tuesday." }] : [];
+    }
+  } });
+  assert.equal((await api.request("/api/chat/reset", { method: "POST" })).status, 401);
+  const preflight = await api.request("/api/chat/reset", { method: "OPTIONS", headers: {
+    Origin: "http://127.0.0.1:5173", "Access-Control-Request-Method": "POST"
+  } });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get("access-control-allow-credentials"), "true");
+  const [intern, employee] = await Promise.all([api.login("intern"), api.login("employee")]);
+  for (const account of [intern, employee]) {
+    assert.equal((await (await account.chat("Orientation details")).json()).source.id, "fixture");
+    assert.equal((await (await account.chat("Tell me more")).json()).source.id, "fixture");
+  }
+  const reset = await intern.post("/api/chat/reset");
+  assert.equal(reset.status, 204);
+  assert.equal(await reset.text(), "");
+  assert.equal((await intern.get("/api/auth/me")).status, 200);
+  assert.deepEqual((await (await intern.chat("Tell me more")).json()).sources, []);
+  assert.equal((await (await employee.chat("Tell me more")).json()).source.id, "fixture");
+});
+
+test("an in-flight answer cannot restore an old chat context after reset", async (t) => {
+  let arrived, release;
+  const generating = new Promise(resolve => { arrived = resolve; });
+  const continueAnswer = new Promise(resolve => { release = resolve; });
+  const api = await setup(t, {
+    knowledge: { async search(question) {
+      return question.includes("Orientation") ? [{ id: "fixture", title: "Museum note", body: "Orientation is Tuesday." }] : [];
+    } },
+    async generateGrounded() { arrived(); await continueAnswer; return "Orientation is Tuesday."; }
+  });
+  const intern = await api.login("intern");
+  const inFlight = intern.chat("Orientation details");
+  try {
+    await Promise.race([generating, inFlight.then(() => { throw new Error("Expected provider to pause"); })]);
+    assert.equal((await intern.post("/api/chat/reset")).status, 204);
+  } finally { release(); }
+  assert.equal((await inFlight).status, 200);
+  assert.deepEqual((await (await intern.chat("Tell me more")).json()).sources, []);
 });
 
 test("confirmed scanner blocks cause a cooldown and Admin-only persisted incident API and stream", async (t) => {
