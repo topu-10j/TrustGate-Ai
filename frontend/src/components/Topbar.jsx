@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { checkBackendConnection, openAlertsStream } from "../services/api";
 import { useLocation, useNavigate } from "react-router-dom";
 import { roleLabels, useWorkspace, useAuditView } from "../state/AuthWorkspace";
-import { alertIdentity, loadAlertReadKeys, saveAlertReadKeys } from "../utils/alertUtils";
+import { alertDestination, alertIdentity, incidentId, loadAlertReadKeys, saveAlertReadKeys } from "../utils/alertUtils";
 
 const pageNames = {
   "/": "Dashboard", "/monitor": "Prompt Scanner", "/analysis": "AI Analysis",
@@ -51,7 +51,11 @@ export default function Topbar({ setOpen, theme, setTheme, onLogout }) {
   useEffect(() => {
     setLiveAlerts([]); setStreamError("");
     if (role !== "admin") return;
-    const stream = openAlertsStream(event => setLiveAlerts(current => [event, ...current.filter(item => alertIdentity(item) !== alertIdentity(event))].slice(0, 50)), error => setStreamError(error.message));
+    const stream = openAlertsStream(event => {
+      if (incidentId(event) === null) return;
+      setStreamError("");
+      setLiveAlerts(current => [event, ...current.filter(item => alertIdentity(item) !== alertIdentity(event))].slice(0, 50));
+    }, error => setStreamError(error.message));
     return () => stream.close();
   }, [role, email]);
 
@@ -73,8 +77,7 @@ export default function Topbar({ setOpen, theme, setTheme, onLogout }) {
   function openAlert(item) {
     setReadAlertsByRole(current => ({ ...current, [storageRole]: [...new Set([...(current[storageRole] || []), item.key])] }));
     setNotificationsOpen(false);
-    const event = item.event;
-    navigate(`/logs?event=${encodeURIComponent(event.timestamp ?? event.id ?? event.incidentId ?? "")}&role=${encodeURIComponent(event.role ?? "")}&decision=${encodeURIComponent(event.decision ?? "")}&reason=${encodeURIComponent(event.reasonCode ?? "")}`);
+    navigate(alertDestination(item.event));
   }
   function markAllRead() { setReadAlertsByRole(current => ({ ...current, [storageRole]: [...new Set([...(current[storageRole] || []), ...alertRows.map(item => item.key)])] })); }
 
@@ -100,7 +103,7 @@ export default function Topbar({ setOpen, theme, setTheme, onLogout }) {
         <button aria-label="Notifications" aria-expanded={notificationsOpen} onClick={()=>setNotificationsOpen(value=>!value)} className="panel-soft relative flex h-10 w-10 items-center justify-center text-muted"><Bell size={17}/>{unreadCount>0&&<span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">{unreadCount>9?"9+":unreadCount}</span>}</button>
         {notificationsOpen&&<div className="absolute right-0 top-12 z-50 w-[min(360px,calc(100vw-28px))] rounded-xl border border-ui bg-[var(--sidebar)] p-3 shadow-2xl">
           <div className="mb-2 flex items-center justify-between gap-2"><h3 className="text-xs font-bold text-main">Live Security Alerts</h3><button aria-label="Close notifications" onClick={()=>setNotificationsOpen(false)} className="text-muted"><X size={15}/></button></div>
-          {role!=="admin"?<p className="py-5 text-center text-xs text-muted">Security incident stream is restricted to Admin.</p>:alertRows.length===0?<p className="py-5 text-center text-xs text-muted">No new incidents received.</p>:<div className="max-h-64 space-y-2 overflow-y-auto">{alertRows.slice(0,8).map(item=><div key={item.key} className={`rounded-lg border border-ui p-2 ${readAlerts.has(item.key)?"opacity-70":""}`}><div className="flex items-start gap-2"><ShieldAlert size={13} className="mt-0.5 shrink-0 text-amber-500"/><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-main">{String(item.event.decision||item.event.severity||item.event.type||"Incident").toUpperCase()} · {item.event.title||item.event.message||roleLabels[item.event.role]||item.event.role||"Security alert"}</p><p className="mt-1 text-[10px] text-muted">{item.event.reasonCode||"Permission decision"} · {item.event.timestamp?new Date(item.event.timestamp).toLocaleString():"Time unavailable"}</p><div className="mt-2 flex items-center gap-3"><button type="button" onClick={()=>openAlert(item)} className="text-[9px] accent-text">Open event →</button>{!readAlerts.has(item.key)&&<button type="button" onClick={()=>setReadAlertsByRole(current=>({...current,[storageRole]:[...new Set([...(current[storageRole]||[]),item.key])]}))} className="flex items-center gap-1 text-[9px] text-muted"><Check size={11}/> Mark as read</button>}<span className="ml-auto text-[9px] text-subtle">{readAlerts.has(item.key)?"Read":"Unread"}</span></div></div></div></div>)}</div>}
+          {role!=="admin"?<p className="py-5 text-center text-xs text-muted">Security incident stream is restricted to Admin.</p>:alertRows.length===0?<p className="py-5 text-center text-xs text-muted">No new incidents received.</p>:<div className="max-h-64 space-y-2 overflow-y-auto">{alertRows.slice(0,8).map(item=><div key={item.key} className={`rounded-lg border border-ui p-2 ${readAlerts.has(item.key)?"opacity-70":""}`}><div className="flex items-start gap-2"><ShieldAlert size={13} className="mt-0.5 shrink-0 text-amber-500"/><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-main">{String(item.event.decision||item.event.severity||item.event.type||"Incident").toUpperCase()} · {incidentId(item.event) !== null ? item.event.type.replaceAll("_", " ") : item.event.title || item.event.message || roleLabels[item.event.role] || item.event.role || "Security alert"}</p><p className="mt-1 text-[10px] text-muted">{incidentId(item.event) !== null ? "Security incident" : item.event.reasonCode || "Permission decision"} · {item.event.timestamp?new Date(item.event.timestamp).toLocaleString():"Time unavailable"}</p><div className="mt-2 flex items-center gap-3"><button type="button" onClick={()=>openAlert(item)} className="text-[9px] accent-text">Open event →</button>{!readAlerts.has(item.key)&&<button type="button" onClick={()=>setReadAlertsByRole(current=>({...current,[storageRole]:[...new Set([...(current[storageRole]||[]),item.key])]}))} className="flex items-center gap-1 text-[9px] text-muted"><Check size={11}/> Mark as read</button>}<span className="ml-auto text-[9px] text-subtle">{readAlerts.has(item.key)?"Read":"Unread"}</span></div></div></div></div>)}</div>}
           {role==="admin"&&streamError&&<p role="status" className="mt-2 text-[10px] text-amber-500">{streamError}</p>}
           {role==="admin"&&alertRows.length>0&&<div className="mt-3 flex gap-2"><button onClick={markAllRead} disabled={!unreadCount} className="flex-1 rounded-lg bg-[var(--panel-2)] px-3 py-2 text-[10px] font-semibold text-main disabled:opacity-40">Mark all read</button><button onClick={()=>{clearNewEvents();setLiveAlerts([]);}} className="flex-1 rounded-lg border border-ui px-3 py-2 text-[10px] font-semibold text-muted">Dismiss alerts</button></div>}
           {role === "admin" && <button onClick={()=>{setNotificationsOpen(false);navigate("/logs");}} className="mt-2 w-full rounded-lg border border-ui px-3 py-2 text-[10px] font-semibold text-muted">Open Firewall Logs</button>}

@@ -543,3 +543,17 @@ def test_scanner_masks_sensitive_values_and_preserves_safe_text() -> None:
         "My test key is [MASKED_API_KEY]; please protect it."
     )
     assert result["decision"] == "WARN"
+def test_masking_keeps_no_punctuation_delimited_password_suffix():
+    text = "Password: DemoOnly?FakeSuffix Keep this text."
+    assert mask_sensitive_data(text) == "Password: [MASKED_PASSWORD] Keep this text."
+
+
+def test_masking_covers_the_full_overlap():
+    text = (
+        'Password: "demo -----BEGIN PRIVATE KEY-----" '
+        "FAKE_DATA -----END PRIVATE KEY----- Keep this text."
+    )
+    masked = mask_sensitive_data(text)
+    assert "FAKE_DATA" not in masked
+    assert "-----END PRIVATE KEY-----" not in masked
+    assert masked.endswith("Keep this text.")

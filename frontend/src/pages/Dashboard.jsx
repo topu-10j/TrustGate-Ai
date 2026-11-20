@@ -1,11 +1,11 @@
-import { useMemo, useCallback, useEffect, useState } from "react";
+import { useMemo, useCallback, useEffect, useRef, useState } from "react";
 import { Activity, ShieldCheck, ShieldAlert, Ban, RadioTower, RefreshCw } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import PageHeader from "../components/PageHeader";
 import StatCard from "../components/StatCard";
 import SectionTitle from "../components/SectionTitle";
 import StatusPill from "../components/StatusPill";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { roleLabels, useAuditView, useWorkspace } from "../state/AuthWorkspace";
 import { getIncidents, updateIncident } from "../services/api";
 
@@ -20,13 +20,64 @@ function eventDate(timestamp) {
 }
 
 
-function AdminIncidents(){
- const {role,expire}=useWorkspace(); const [items,setItems]=useState([]); const [busy,setBusy]=useState(false); const [error,setError]=useState("");
- const refresh=useCallback(async()=>{setBusy(true);setError("");try{const list=await getIncidents();setItems(list);}catch(e){if(e.status===401)expire();setError(e.message);}finally{setBusy(false);}},[expire]);
- useEffect(()=>{if(role==="admin")refresh();},[role,refresh]);
- async function status(id,value){try{await updateIncident(id,value);await refresh();}catch(e){if(e.status===401)expire();setError(e.message);}}
- if(role!=="admin")return null;
- return <section className="panel mb-6 p-5"><SectionTitle title="Security incidents" subtitle="Admin-only incident triage" right={<button onClick={refresh} disabled={busy} className="panel-soft rounded-lg px-3 py-2 text-xs">{busy?"Refreshing…":"Refresh"}</button>}/>{error&&<p role="alert" className="mb-3 text-xs text-red-400">{error}</p>}<div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-xs"><thead><tr className="border-b border-ui text-[10px] uppercase text-subtle"><th className="pb-3">Incident</th><th className="pb-3">Severity</th><th className="pb-3">Status</th><th className="pb-3">Actions</th></tr></thead><tbody>{items.map(i=><tr key={i.id} className="border-b border-ui"><td className="py-3 text-main">{i.title||i.message||i.type||i.id}</td><td className="py-3 text-muted">{i.severity||"—"}</td><td className="py-3 text-muted">{i.status||"open"}</td><td className="py-3"><div className="flex gap-2">{i.status!=="acknowledged"&&i.status!=="resolved"&&<button onClick={()=>status(i.id,"acknowledged")} className="panel-soft rounded px-2 py-1">Acknowledge</button>}{i.status!=="resolved"&&<button onClick={()=>status(i.id,"resolved")} className="panel-soft rounded px-2 py-1">Resolve</button>}</div></td></tr>)}</tbody></table></div>{!busy&&!items.length&&!error&&<p className="py-5 text-center text-xs text-muted">No incidents currently reported.</p>}</section>;
+function AdminIncidents() {
+  const { role, expire } = useWorkspace();
+  const [params] = useSearchParams();
+  const selectedId = params.get("incident");
+  const selectedRow = useRef(null);
+  const [items, setItems] = useState([]);
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState("");
+  const refresh = useCallback(async (signal) => {
+    setBusy(true);
+    setError("");
+    try {
+      const list = await getIncidents(signal);
+      if (!signal?.aborted) setItems(list);
+    } catch (failure) {
+      if (signal?.aborted) return;
+      if (failure.status === 401) expire();
+      setError(failure.message);
+    } finally { if (!signal?.aborted) setBusy(false); }
+  }, [expire]);
+  useEffect(() => {
+    if (role !== "admin") return;
+    const request = new AbortController();
+    refresh(request.signal);
+    return () => request.abort();
+  }, [role, selectedId, refresh]);
+  useEffect(() => {
+    if (!busy && selectedRow.current) {
+      selectedRow.current.focus({ preventScroll: true });
+      selectedRow.current.scrollIntoView({ block: "center" });
+    }
+  }, [selectedId, busy]);
+  async function setStatus(id, value) {
+    try { await updateIncident(id, value); await refresh(); }
+    catch (failure) { if (failure.status === 401) expire(); setError(failure.message); }
+  }
+  if (role !== "admin") return null;
+  const selected = items.find(item => String(item.id) === selectedId);
+  return <section id="security-incidents" className="panel mb-6 p-5" aria-label="Security incidents">
+    <SectionTitle title="Security incidents" subtitle="Admin-only incident triage" right={<button onClick={() => refresh()} disabled={busy} className="panel-soft rounded-lg px-3 py-2 text-xs">{busy ? "Refreshing…" : "Refresh"}</button>}/>
+    {error && <p role="alert" className="mb-3 text-xs text-red-400">{error}</p>}
+    {selectedId && !busy && !error && <p role="status" className="mb-3 text-xs text-muted">{selected ? `Selected incident #${selected.id}` : "This incident is not in the current incident list."}</p>}
+    <div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-xs">
+      <thead><tr className="border-b border-ui text-[10px] uppercase text-subtle"><th className="pb-3">Incident</th><th className="pb-3">Severity</th><th className="pb-3">Status</th><th className="pb-3">Actions</th></tr></thead>
+      <tbody>{items.map(item => {
+        const active = String(item.id) === selectedId;
+        return <tr key={item.id} ref={active ? selectedRow : null} tabIndex={active ? -1 : undefined} aria-current={active ? "true" : undefined} className={`border-b border-ui ${active ? "bg-amber-500/10" : ""}`}>
+          <td className="py-3 text-main">{item.title || item.message || item.type || item.id}</td>
+          <td className="py-3 text-muted">{item.severity || "—"}</td><td className="py-3 text-muted">{item.status || "open"}</td>
+          <td className="py-3"><div className="flex gap-2">
+            {item.status !== "acknowledged" && item.status !== "resolved" && <button onClick={() => setStatus(item.id, "acknowledged")} className="panel-soft rounded px-2 py-1">Acknowledge</button>}
+            {item.status !== "resolved" && <button onClick={() => setStatus(item.id, "resolved")} className="panel-soft rounded px-2 py-1">Resolve</button>}
+          </div></td>
+        </tr>;
+      })}</tbody>
+    </table></div>
+    {!busy && !items.length && !error && <p className="py-5 text-center text-xs text-muted">No incidents currently reported.</p>}
+  </section>;
 }
 
 export default function Dashboard() {

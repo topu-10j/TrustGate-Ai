@@ -43,9 +43,9 @@ API_KEY_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 _PASSWORD_PATTERN = re.compile(
-    r"\b(?:password|passwd|passphrase|secret)\s*[:=]\s*"
-    r"""(?:"(?P<double>[^"\r\n]{1,256})"|'(?P<single>[^'\r\n]{1,256})'|"""
-    r"(?P<plain>[A-Za-z0-9][A-Za-z0-9!@#$%^&*._+-]{3,127}))",
+    r"\b(?:password|passwd|passphrase|secret)[ \t]*[:=][ \t]*"
+    r"""(?:"(?P<double>[^"\r\n]+)"|'(?P<single>[^'\r\n]+)'|"""
+    r"""(?P<plain>(?!["'])\S{4,}))""",
     re.IGNORECASE,
 )
 
@@ -171,9 +171,11 @@ def _collect_matches(prompt: str) -> list[SensitiveMatch]:
     selected: list[SensitiveMatch] = []
     for candidate in candidates:
         if selected and candidate["start"] < selected[-1]["end"]:
+            selected[-1]["end"] = max(selected[-1]["end"], candidate["end"])
             continue
         selected.append(candidate)
     return selected
+
 
 
 def detect_sensitive_data(prompt: str) -> SensitiveDataResult:

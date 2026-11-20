@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { alertIdentity, loadAlertReadKeys, saveAlertReadKeys } from "../src/utils/alertUtils.js";
+import { alertDestination, alertIdentity, loadAlertReadKeys, saveAlertReadKeys } from "../src/utils/alertUtils.js";
 
 function memoryStorage() {
   const values = new Map();
@@ -26,4 +26,15 @@ test("alert read state round-trips per role and handles invalid storage", () => 
   const broken = { getItem() { throw new Error("storage blocked"); }, setItem() { throw new Error("storage blocked"); } };
   assert.deepEqual(loadAlertReadKeys(broken, "admin"), []);
   assert.equal(saveAlertReadKeys(broken, "admin", ["a"]), false);
+});
+
+test("security incidents route by incident ID while permission alerts still open audit logs", () => {
+  const incident = { id: "42", type: "FILE_REJECTED", severity: "high", timestamp: "2026-01-01T00:00:00Z" };
+  const audit = { id: "42", decision: "denied", reasonCode: "ACCESS_DENIED", timestamp: incident.timestamp };
+  assert.equal(alertDestination(incident), "/?incident=42#security-incidents");
+  assert.notEqual(alertIdentity(incident), alertIdentity(audit));
+  const auditUrl = new URL(alertDestination(audit), "http://example.invalid");
+  assert.equal(auditUrl.pathname, "/logs");
+  assert.equal(auditUrl.searchParams.get("event"), audit.timestamp);
+  assert.equal(auditUrl.searchParams.get("reason"), "ACCESS_DENIED");
 });

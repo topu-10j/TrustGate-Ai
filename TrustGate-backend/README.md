@@ -268,7 +268,9 @@ A request receives only clean, non-archived excerpts allowed by the user's
 role and group scopes. The response keeps `source` for one-source compatibility
 and adds `sources` for citations; with no matching approved record it reports
 that nothing was found. Follow-up phrases reuse one previous masked query in
-the same session. Input and excerpts are screened and masked before cloud
+the same session. An authenticated `POST /api/chat/reset` returns `204` and
+forgets that query without signing the user out. An older response cannot write
+its context back after a reset. Input and excerpts are screened and masked before cloud
 generation; output is screened and masked before returning. Rule-based
 scanning and model responses do not guarantee detection or factual accuracy.
 An integrated chat `WARN` for known prompt injection or jailbreak indicators
@@ -276,6 +278,8 @@ blocks the affected prompt, excerpt, or answer. Other input/output warnings
 can continue after masking and appear in the response as an optional
 `warnings: [{ stage, code: "SCANNER_WARNING", threats }]` array. `stage` is
 `input` or `output`. The standalone `/api/security/scan` scoring is unchanged.
+Chat and standalone scans share four worker slots. Up to 32 additional scans
+can wait for up to eight seconds. A full or expired queue still fails closed.
 
 ### Additional Admin APIs
 
