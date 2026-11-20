@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: trustgate-ai-judge-demo
+    runtime: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    envVars:
+      - key: PGHOST
+        fromDatabase:
+          name: trustgate-judge-db
+          property: host
+      - key: PGPORT
+        fromDatabase:
+          name: trustgate-judge-db
+          property: port
+      - key: PGDATABASE
+        fromDatabase:
+          name: trustgate-judge-db
+          property: database
+      - key: PGUSER
+        fromDatabase:
+          name: trustgate-judge-db
+          property: user
+      - key: PGPASSWORD
+        fromDatabase:
+          name: trustgate-judge-db
+          property: password
+      - key: TRUSTGATE_JUDGE_ADMIN_PASSWORD
+        sync: false
+      - key: TRUSTGATE_JUDGE_EMPLOYEE_PASSWORD
+        sync: false
+      - key: TRUSTGATE_JUDGE_INTERN_PASSWORD
+        sync: false
+
+databases:
+  - name: trustgate-judge-db
+    databaseName: trustgate_judge
+    region: singapore
+    plan: free
+    ipAllowList: []

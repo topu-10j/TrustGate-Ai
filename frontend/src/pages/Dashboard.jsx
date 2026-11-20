@@ -58,21 +58,22 @@ function AdminIncidents() {
   }
   if (role !== "admin") return null;
   const selected = items.find(item => String(item.id) === selectedId);
+  const judgeViewer = import.meta.env.VITE_TRUSTGATE_JUDGE_DEMO === "1";
   return <section id="security-incidents" className="panel mb-6 p-5" aria-label="Security incidents">
-    <SectionTitle title="Security incidents" subtitle="Admin-only incident triage" right={<button onClick={() => refresh()} disabled={busy} className="panel-soft rounded-lg px-3 py-2 text-xs">{busy ? "Refreshing…" : "Refresh"}</button>}/>
+    <SectionTitle title="Security incidents" subtitle={judgeViewer ? "Admin-only incident history · read-only" : "Admin-only incident triage"} right={<button onClick={() => refresh()} disabled={busy} className="panel-soft rounded-lg px-3 py-2 text-xs">{busy ? "Refreshing…" : "Refresh"}</button>}/>
     {error && <p role="alert" className="mb-3 text-xs text-red-400">{error}</p>}
     {selectedId && !busy && !error && <p role="status" className="mb-3 text-xs text-muted">{selected ? `Selected incident #${selected.id}` : "This incident is not in the current incident list."}</p>}
     <div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-xs">
-      <thead><tr className="border-b border-ui text-[10px] uppercase text-subtle"><th className="pb-3">Incident</th><th className="pb-3">Severity</th><th className="pb-3">Status</th><th className="pb-3">Actions</th></tr></thead>
+      <thead><tr className="border-b border-ui text-[10px] uppercase text-subtle"><th className="pb-3">Incident</th><th className="pb-3">Severity</th><th className="pb-3">Status</th>{!judgeViewer && <th className="pb-3">Actions</th>}</tr></thead>
       <tbody>{items.map(item => {
         const active = String(item.id) === selectedId;
         return <tr key={item.id} ref={active ? selectedRow : null} tabIndex={active ? -1 : undefined} aria-current={active ? "true" : undefined} className={`border-b border-ui ${active ? "bg-amber-500/10" : ""}`}>
           <td className="py-3 text-main">{item.title || item.message || item.type || item.id}</td>
           <td className="py-3 text-muted">{item.severity || "—"}</td><td className="py-3 text-muted">{item.status || "open"}</td>
-          <td className="py-3"><div className="flex gap-2">
+          {!judgeViewer && <td className="py-3"><div className="flex gap-2">
             {item.status !== "acknowledged" && item.status !== "resolved" && <button onClick={() => setStatus(item.id, "acknowledged")} className="panel-soft rounded px-2 py-1">Acknowledge</button>}
             {item.status !== "resolved" && <button onClick={() => setStatus(item.id, "resolved")} className="panel-soft rounded px-2 py-1">Resolve</button>}
-          </div></td>
+          </div></td>}
         </tr>;
       })}</tbody>
     </table></div>

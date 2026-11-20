@@ -13,8 +13,20 @@ const postgresMode = process.argv.includes("--postgres");
 const geminiMode = process.argv.includes("--gemini");
 const integrated = process.argv.includes("--integrated");
 const openaiMode = process.argv.includes("--openai");
+const judge = process.env.TRUSTGATE_JUDGE_DEMO === "1"
+  ? await import("./judge-demo.js") : null;
+let passwords;
 let config;
-try { config = deploymentConfig(process.env, postgresMode); }
+try {
+  config = deploymentConfig(judge ? judge.judgeEnvironment() : process.env, postgresMode);
+  if (judge) {
+    if (!config.secureCookies || !integrated || geminiMode || openaiMode ||
+        process.env.TRUSTGATE_VECTOR_RAG === "1") {
+      throw new Error("Judge demo requires integrated PostgreSQL, secure cookies and local retrieval.");
+    }
+    passwords = judge.judgePasswords(process.env);
+  }
+}
 catch (error) {
   console.error(error.message);
   process.exit(1);
@@ -53,6 +65,8 @@ if (postgresMode) {
     );
     pool = postgres.createPostgresPool(password);
     pool.on("error", () => console.error("PostgreSQL connection interrupted."));
+    if (judge) await judge.setupJudgeAccounts(pool, passwords);
+    passwords = undefined;
     await postgres.verifyPostgresSchema(pool);
     if (options.secureCookies) await postgres.requireNetworkAccounts(pool);
     options.audit = await createPostgresAuditLog(pool);
@@ -63,10 +77,22 @@ if (postgresMode) {
         ? (await import("./local-embeddings.js")).embedLocally : undefined;
       options.knowledge = await createPostgresKnowledge(pool, { embed });
     }
+    if (judge) {
+      try {
+        options.serveFrontend = await judge.loadJudgeFrontend();
+        await judge.seedJudgeDocument(pool);
+        options.readOnlyVault = true;
+        options.readOnlyIncidents = true;
+      } catch {
+        throw Object.assign(new Error("Could not initialize the bundled judge frontend and PDF fixture."), {
+          code: "JUDGE_DEMO_INITIALIZATION_FAILED"
+        });
+      }
+    }
     options.authenticate = postgres.createPostgresAuthenticator(pool, { network: options.secureCookies });
     options.accountSource = "postgres";
   } catch (error) {
-    console.error((error.message === "Run this command in an interactive terminal." || ["VECTOR_NOT_AVAILABLE", "NETWORK_PASSWORDS_REQUIRED"].includes(error.code))
+    console.error((error.message === "Run this command in an interactive terminal." || ["VECTOR_NOT_AVAILABLE", "NETWORK_PASSWORDS_REQUIRED", "JUDGE_DEMO_INITIALIZATION_FAILED"].includes(error.code))
       ? error.message : postgres.postgresErrorMessage(error));
     await pool?.end();
     process.exit(1);

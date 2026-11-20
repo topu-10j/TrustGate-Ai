@@ -1,7 +1,8 @@
 import axios from "axios";
 
 // Keep both local origins on 127.0.0.1. Auth is cookie-based; never persist tokens in JS.
-export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL === "/" ? window.location.origin
+  : (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 export const API_MODE = "real backend";
 export const client = axios.create({ baseURL: API_BASE_URL, timeout: 20000, withCredentials: true });
 

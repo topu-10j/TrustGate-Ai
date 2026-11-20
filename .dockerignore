@@ -1,0 +1,11 @@
+.git
+**/node_modules
+**/dist
+**/.env*
+**/.local-accounts.json
+**/.vite
+**/.venv
+**/.pytest_cache
+**/__pycache__
+
+deploy/judge/veloria-extracted.json

@@ -108,7 +108,10 @@ export function createServer({
   knowledge,
   generateGrounded = ({ sources }) => fallbackGroundedAnswer(sources),
   allowedHosts = [],
-  secureCookies = false
+  secureCookies = false,
+  readOnlyVault = false,
+  readOnlyIncidents = false,
+  serveFrontend
 } = {}) {
   const sessions = new Map();
   const origins = new Set(allowedOrigins);
@@ -273,6 +276,7 @@ export function createServer({
       }
       configureCors(req, res, origins, loginMode, vaultEnabled);
       const path = req.url.split("?")[0];
+      if (serveFrontend?.(req, res, path)) return;
       const vaultMatch = vaultEnabled ? vaultItem.exec(path) : null;
       const isVaultPath = vaultEnabled && (path === vaultCollection || path === "/api/documents" || path === "/api/admin/account-scopes" || Boolean(vaultMatch));
 
@@ -338,6 +342,9 @@ export function createServer({
           return;
         }
         if (req.method === "PATCH" && incidentMatch) {
+          if (readOnlyIncidents) {
+            throw new ApiError(403, "JUDGE_INCIDENTS_READ_ONLY", "Incident status changes are disabled in the judging demo.");
+          }
           const status = await readJson(req, "status");
           if (!["acknowledged", "resolved"].includes(status)) {
             throw new ApiError(400, "INVALID_INCIDENT_STATUS", "Use acknowledged or resolved.");
@@ -359,6 +366,9 @@ export function createServer({
         }
         if (path === vaultCollection && req.method === "GET") {
           return sendJson(res, 200, { documents: await useVault(() => vault.listAdmin()) });
+        }
+        if (readOnlyVault && req.method !== "GET") {
+          throw new ApiError(403, "JUDGE_VAULT_READ_ONLY", "The judging Vault uses a pre-scanned fictional PDF. Changes and uploads are disabled.");
         }
         if (path === vaultCollection && req.method === "POST") {
           if (activeUploads >= MAX_CONCURRENT_UPLOADS) {

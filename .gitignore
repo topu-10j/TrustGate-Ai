@@ -10,3 +10,5 @@ __pycache__/
 .venv/
 
 /TrustGate-backend/.local-accounts.json
+
+/deploy/judge/veloria-extracted.json

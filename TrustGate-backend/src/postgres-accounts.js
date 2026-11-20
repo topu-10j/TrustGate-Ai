@@ -65,6 +65,30 @@ export async function provisionPostgresAccounts(pool, accounts) {
   }
 }
 
+export async function provisionDemoNetworkAccounts(pool, accounts) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(18473, 2)");
+    await client.query(schema);
+    await client.query("ALTER TABLE trustgate_accounts ADD COLUMN IF NOT EXISTS password_policy TEXT NOT NULL DEFAULT 'local'");
+    for (const { email, role, salt, hash } of accounts) {
+      await client.query(`
+        INSERT INTO trustgate_accounts (email, role, salt, hash, password_policy)
+        VALUES ($1, $2, $3, $4, 'network')
+        ON CONFLICT (email) DO UPDATE SET role = EXCLUDED.role, salt = EXCLUDED.salt,
+          hash = EXCLUDED.hash, password_policy = 'network'
+      `, [email, role, salt, hash]);
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export function postgresErrorMessage(error) {
   switch (error.code) {
     case "ECONNREFUSED": return "PostgreSQL is not accepting connections. Check that the Windows service is running.";

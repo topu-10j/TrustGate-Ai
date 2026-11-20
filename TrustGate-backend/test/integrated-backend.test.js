@@ -63,6 +63,30 @@ async function setup(t, options = {}) {
   return { login, incidents, request };
 }
 
+test("judging viewer permits chat and Admin history but blocks Vault and incident edits", async (t) => {
+  const api = await setup(t, {
+    readOnlyVault: true,
+    readOnlyIncidents: true,
+    vault: { async listAdmin() { return []; } }
+  });
+  const admin = await api.login("admin");
+  const intern = await api.login("intern");
+  assert.equal((await admin.chat("Where is the orientation?")).status, 200);
+  await intern.chat("BLOCK_FIXTURE");
+  const list = await admin.get("/api/security/incidents");
+  assert.equal(list.status, 200);
+  assert.equal((await list.json()).incidents[0].status, "open");
+  const edit = await admin.patch("/api/security/incidents/1", { status: "resolved" });
+  assert.equal(edit.status, 403);
+  assert.equal((await edit.json()).code, "JUDGE_INCIDENTS_READ_ONLY");
+  assert.equal(api.incidents[0].status, "open");
+  assert.equal((await admin.get("/api/vault/documents")).status, 200);
+  const upload = await admin.post("/api/vault/documents", {});
+  assert.equal(upload.status, 403);
+  assert.equal((await upload.json()).code, "JUDGE_VAULT_READ_ONLY");
+  assert.equal((await admin.post("/api/admin/account-scopes", {})).status, 403);
+});
+
 test("grounded chat passes only masked question and approved excerpts, and cites source IDs locally", async (t) => {
   const calls = [];
   const api = await setup(t, {
