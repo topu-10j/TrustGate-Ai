@@ -1,4 +1,4 @@
-const MAX_EVENTS = 100;
+export const MAX_EVENTS = 100;
 
 export function createAuditLog(now = Date.now) {
   const events = [];

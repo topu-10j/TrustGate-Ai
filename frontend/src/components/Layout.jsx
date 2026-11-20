@@ -3,12 +3,12 @@ import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 
-export default function Layout({ theme, setTheme }) {
+export default function Layout({ theme, setTheme, onLogout }) {
   const [open, setOpen] = useState(false);
   return <div className="app-bg min-h-screen">
-    <Sidebar open={open} setOpen={setOpen}/>
+    <Sidebar open={open} setOpen={setOpen} onLogout={onLogout}/>
     <div className="min-h-screen lg:pl-[218px]">
-      <Topbar setOpen={setOpen} theme={theme} setTheme={setTheme}/>
+      <Topbar setOpen={setOpen} theme={theme} setTheme={setTheme} onLogout={onLogout}/>
       <main className="grid-glow min-h-[calc(100vh-70px)] px-4 py-5 md:px-7 md:py-6">
         <div className="mx-auto w-full max-w-[1600px]"><Outlet/></div>
       </main>

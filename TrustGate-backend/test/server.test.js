@@ -1,19 +1,13 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
 import { test } from "node:test";
+import { listenForFetch } from "../test-support/http-server.js";
 import { createServer } from "../src/server.js";
 import { canRead } from "../src/policy.js";
 import { createAuditLog } from "../src/audit.js";
 
 async function setup(t, options = {}) {
   const server = createServer(options);
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  t.after(() => new Promise((resolve, reject) => {
-    server.close((error) => error ? reject(error) : resolve());
-  }));
-
-  const base = `http://127.0.0.1:${server.address().port}`;
+  const base = await listenForFetch(t, server);
   function request(path, options) {
     return fetch(base + path, options);
   }
@@ -301,4 +295,51 @@ test("local frontend can preflight the scanner route", async (t) => {
   });
   assert.equal(response.status, 204);
   assert.equal(response.headers.get("Access-Control-Allow-Origin"), "http://127.0.0.1:5173");
+});
+
+test("the answer provider waits for the audit write to finish", async (t) => {
+  let saved = false;
+  const api = await setup(t, {
+    audit: {
+      async record() {
+        await Promise.resolve();
+        saved = true;
+      }
+    },
+    generateAnswer: async () => {
+      assert.equal(saved, true);
+      return "Approved answer";
+    }
+  });
+  const response = await api.post("/api/chat", { message: "What are the office hours?" }, await api.session("intern"));
+  assert.equal(response.status, 200);
+  assert.equal(response.body.answer, "Approved answer");
+});
+
+test("an audit outage does not release records or expose database details", async (t) => {
+  let providerCalls = 0;
+  let readCalls = 0;
+  const broken = new Error("internal database error trace");
+  const api = await setup(t, {
+    audit: {
+      async record() { throw broken; },
+      async list() { readCalls++; throw broken; }
+    },
+    generateAnswer: async () => { providerCalls++; return "Unexpected"; }
+  });
+  const admin = await api.session("admin");
+  const intern = await api.session("intern");
+  assert.equal((await readAudit(api, intern)).status, 403);
+  assert.equal(readCalls, 0);
+  const response = await api.post("/api/chat", { message: budgetQuestion }, admin);
+  const denied = await api.post("/api/chat", { message: budgetQuestion }, intern);
+  const audit = await readAudit(api, admin);
+  const expected = {
+    status: 503,
+    body: { code: "AUDIT_UNAVAILABLE", message: "The audit log is temporarily unavailable." }
+  };
+  assert.deepEqual(response, expected);
+  assert.deepEqual(denied, expected);
+  assert.deepEqual(audit, expected);
+  assert.equal(providerCalls, 0);
 });

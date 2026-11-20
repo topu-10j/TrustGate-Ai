@@ -3,11 +3,29 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node src/index.js",
+    "start:login": "node src/index.js --login",
+    "login:setup": "node scripts/setup-login.js",
     "dev": "node --watch src/index.js",
     "test": "node --test",
-    "demo": "node scripts/demo.js"
+    "demo": "node scripts/demo.js",
+    "postgres:setup": "node scripts/setup-postgres.js",
+    "start:postgres": "node src/index.js --postgres",
+    "start:gemini": "node src/index.js --postgres --gemini",
+    "gemini:check": "node scripts/check-gemini.js",
+    "start:integrated": "node src/index.js --postgres --gemini --integrated",
+    "start:integrated-local": "node src/index.js --postgres --integrated",
+    "vault:scan": "node scripts/vault-tools.js scan",
+    "vault:slack-import": "node scripts/vault-tools.js slack",
+    "postgres:network-passwords": "node scripts/setup-postgres.js --network",
+    "start:integrated-openai": "node src/index.js --postgres --openai --integrated"
+  },
+  "dependencies": {
+    "busboy": "1.6.0",
+    "pg": "8.23.1"
   }
 }
