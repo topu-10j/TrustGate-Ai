@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
-import { findRequestedRecords } from "./catalog.js";
+import { findRequestedRecords, isBuiltInDemoQuestion } from "./catalog.js";
 import { canRead, isDemoRole } from "./policy.js";
 import { generateAnswer as defaultAnswer } from "./answer.js";
 import { createAuditLog } from "./audit.js";
@@ -223,7 +223,8 @@ export function createServer({
       return reply({ answer, source: null, sources: [] });
     }
     const lookup = followUpQuery(masked, previousQuestion);
-    const rows = await useVault(() => knowledge.search(lookup, role, session.email));
+    const builtInQuestion = matches.length === 1 && isBuiltInDemoQuestion(masked);
+    const rows = builtInQuestion ? [] : await useVault(() => knowledge.search(lookup, role, session.email));
     let sources;
     try { sources = await groundedSources(rows, scanPrompt); }
     catch { throw new ApiError(503, "SCANNER_UNAVAILABLE", "The scanner is temporarily unavailable."); }

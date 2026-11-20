@@ -26,3 +26,15 @@ export function findRequestedRecords(question) {
     .filter(({ matchers }) => matchers.some((matches) => matches(text)))
     .map(({ record }) => record);
 }
+
+// These exact shortcuts in Secure Chat describe the built-in company records,
+// not an arbitrary Vault document that happens to share a search word.
+const builtInDemoQuestions = new Set([
+  "what are the office hours",
+  "what is the confidential budget",
+  "what is the project deadline"
+]);
+
+export function isBuiltInDemoQuestion(question) {
+  return builtInDemoQuestions.has(normalize(question).replace(/[?.!]+$/, "").trim());
+}

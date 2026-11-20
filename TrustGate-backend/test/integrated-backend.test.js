@@ -98,6 +98,35 @@ test("judging demo blocks only new Vault uploads and preserves the ordinary role
   assert.equal((await admin.post(item + "/archive", {})).status, 200);
 });
 
+test("built-in chat shortcuts cite their matching record instead of an unrelated Vault result", async (t) => {
+  const searches = [];
+  const api = await setup(t, {knowledge: {
+    async search(question) {
+      searches.push(question);
+      return [{ id: "veloria", title: "Confidential Veloria Volunteer Orientation", body: "Orientation is in Cedar Hall." }];
+    }
+  }});
+  const admin = await api.login("admin");
+  const shortcuts = [
+    ["What are the office hours?", "office-hours", /9:00 AM/],
+    ["What is the project deadline?", "project-deadline", /10 December 2026/],
+    ["What is the confidential budget?", "confidential-budget", /BDT 1,200,000/]
+  ];
+  for (const [question, id, expected] of shortcuts) {
+    const response = await admin.chat(question);
+    assert.equal(response.status, 200);
+    const answer = await response.json();
+    assert.equal(answer.source.id, id);
+    assert.match(answer.answer, expected);
+  }
+  assert.deepEqual(searches, []);
+  const vaultAnswer = await (await admin.chat("Where is Veloria volunteer orientation?")).json();
+  assert.equal(vaultAnswer.source.id, "veloria");
+  assert.match(vaultAnswer.answer, /Cedar Hall/);
+  const intern = await api.login("intern");
+  assert.equal((await intern.chat("What is the confidential budget?")).status, 403);
+});
+
 test("grounded chat passes only masked question and approved excerpts, and cites source IDs locally", async (t) => {
   const calls = [];
   const api = await setup(t, {
