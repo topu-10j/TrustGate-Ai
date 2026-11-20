@@ -81,8 +81,7 @@ if (postgresMode) {
       try {
         options.serveFrontend = await judge.loadJudgeFrontend();
         await judge.seedJudgeDocument(pool);
-        options.readOnlyVault = true;
-        options.readOnlyIncidents = true;
+        options.disableVaultUploads = true;
       } catch {
         throw Object.assign(new Error("Could not initialize the bundled judge frontend and PDF fixture."), {
           code: "JUDGE_DEMO_INITIALIZATION_FAILED"

@@ -63,28 +63,39 @@ async function setup(t, options = {}) {
   return { login, incidents, request };
 }
 
-test("judging viewer permits chat and Admin history but blocks Vault and incident edits", async (t) => {
+test("judging demo blocks only new Vault uploads and preserves the ordinary role checks", async (t) => {
+  const documentId = "538e68cb-652a-4d90-85a2-283b08e04fda";
   const api = await setup(t, {
-    readOnlyVault: true,
-    readOnlyIncidents: true,
-    vault: { async listAdmin() { return []; } }
+    disableVaultUploads: true,
+    vault: {
+      async listAdmin() { return [{ id: documentId, scanStatus: "clean" }]; },
+      async insert() { assert.fail("The upload handler must not reach storage"); },
+      async update(id, fields) { return { id, ...fields }; },
+      async setDocumentScopes(id, scopes) { assert.equal(id, documentId); return scopes; },
+      async setAccountScopes(email, scopes) { assert.equal(email, "employee@example.org"); return scopes; },
+      async archive(id) { return { id, archivedAt: "2026-11-20T00:00:00Z" }; }
+    }
   });
   const admin = await api.login("admin");
   const intern = await api.login("intern");
   assert.equal((await admin.chat("Where is the orientation?")).status, 200);
+  assert.equal((await admin.post("/api/security/scan", { prompt: "Hello team" })).status, 200);
   await intern.chat("BLOCK_FIXTURE");
-  const list = await admin.get("/api/security/incidents");
-  assert.equal(list.status, 200);
-  assert.equal((await list.json()).incidents[0].status, "open");
+  assert.equal((await admin.get("/api/security/incidents")).status, 200);
   const edit = await admin.patch("/api/security/incidents/1", { status: "resolved" });
-  assert.equal(edit.status, 403);
-  assert.equal((await edit.json()).code, "JUDGE_INCIDENTS_READ_ONLY");
-  assert.equal(api.incidents[0].status, "open");
+  assert.equal(edit.status, 200);
+  assert.equal((await edit.json()).incident.status, "resolved");
   assert.equal((await admin.get("/api/vault/documents")).status, 200);
+  assert.equal((await intern.get("/api/vault/documents")).status, 403);
   const upload = await admin.post("/api/vault/documents", {});
   assert.equal(upload.status, 403);
-  assert.equal((await upload.json()).code, "JUDGE_VAULT_READ_ONLY");
-  assert.equal((await admin.post("/api/admin/account-scopes", {})).status, 403);
+  assert.equal((await upload.json()).code, "JUDGE_UPLOAD_DISABLED");
+  const item = "/api/vault/documents/" + documentId;
+  assert.equal((await admin.patch(item, { title: "Veloria", accessLevel: "confidential" })).status, 200);
+  assert.equal((await intern.patch(item, { title: "Veloria", accessLevel: "confidential" })).status, 403);
+  assert.equal((await admin.post(item + "/scopes", { scopes: [] })).status, 200);
+  assert.equal((await admin.post("/api/admin/account-scopes", { email: "employee@example.org", scopes: [] })).status, 200);
+  assert.equal((await admin.post(item + "/archive", {})).status, 200);
 });
 
 test("grounded chat passes only masked question and approved excerpts, and cites source IDs locally", async (t) => {

@@ -109,8 +109,7 @@ export function createServer({
   generateGrounded = ({ sources }) => fallbackGroundedAnswer(sources),
   allowedHosts = [],
   secureCookies = false,
-  readOnlyVault = false,
-  readOnlyIncidents = false,
+  disableVaultUploads = false,
   serveFrontend
 } = {}) {
   const sessions = new Map();
@@ -342,9 +341,6 @@ export function createServer({
           return;
         }
         if (req.method === "PATCH" && incidentMatch) {
-          if (readOnlyIncidents) {
-            throw new ApiError(403, "JUDGE_INCIDENTS_READ_ONLY", "Incident status changes are disabled in the judging demo.");
-          }
           const status = await readJson(req, "status");
           if (!["acknowledged", "resolved"].includes(status)) {
             throw new ApiError(400, "INVALID_INCIDENT_STATUS", "Use acknowledged or resolved.");
@@ -367,10 +363,10 @@ export function createServer({
         if (path === vaultCollection && req.method === "GET") {
           return sendJson(res, 200, { documents: await useVault(() => vault.listAdmin()) });
         }
-        if (readOnlyVault && req.method !== "GET") {
-          throw new ApiError(403, "JUDGE_VAULT_READ_ONLY", "The judging Vault uses a pre-scanned fictional PDF. Changes and uploads are disabled.");
-        }
         if (path === vaultCollection && req.method === "POST") {
+          if (disableVaultUploads) {
+            throw new ApiError(403, "JUDGE_UPLOAD_DISABLED", "New file uploads are disabled in the judging demo.");
+          }
           if (activeUploads >= MAX_CONCURRENT_UPLOADS) {
             throw new ApiError(429, "UPLOAD_BUSY", "Too many uploads in progress. Try again shortly.");
           }

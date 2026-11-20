@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir -r /requirements-vault.txt \
     && python /extract_vault.py veloria-confidential-demo.pdf application/pdf > veloria-extracted.json
 
 FROM node:22-bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends python3-minimal \
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY TrustGate-backend/package*.json ./TrustGate-backend/
@@ -33,5 +33,7 @@ COPY security-engine/security ./security-engine/security
 COPY --from=frontend /build/dist ./frontend/dist
 COPY --from=fixture-extract /fixture ./deploy/judge/
 USER node
-ENV TRUSTGATE_JUDGE_DEMO=1 TRUSTGATE_BIND_HOST=0.0.0.0 PORT=10000
+ENV TRUSTGATE_JUDGE_DEMO=1 TRUSTGATE_BIND_HOST=0.0.0.0 PORT=10000 TRUSTGATE_PYTHON=/usr/bin/python3
+# Use the same Node runner, installed interpreter and unprivileged user as production.
+RUN node --input-type=module -e 'import { scanPrompt } from "./TrustGate-backend/src/scanner.js"; const result = await scanPrompt("Hello team"); if (result.decision !== "ALLOW") throw new Error("Prompt scanner smoke test failed"); console.log("Prompt scanner is ready");'
 CMD ["node", "TrustGate-backend/src/index.js", "--postgres", "--integrated"]

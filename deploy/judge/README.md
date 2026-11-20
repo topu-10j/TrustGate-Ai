@@ -1,12 +1,12 @@
 # Publish the TrustGate judging demo
 
-This separate deployment is for fictional competition data only. It runs Vite, Node, the Python prompt scanner and PostgreSQL behind one HTTPS URL. It uses local, source-cited answers without an AI API key. The Docker build scans a bundled fictional PDF with ClamAV before extracting it. If that scan or extraction fails, the image will not build. Only that document is preloaded. Chat is interactive. Vault uploads and edits, account-scope edits and incident status changes are disabled in this shared demo. Audit and incident history remain viewable for Admin. The original laptop setup can still show the full upload → scan → index workflow.
+This separate deployment is for fictional competition data only. It runs Vite, Node, the Python prompt scanner and PostgreSQL behind one HTTPS URL. It uses local, source-cited answers without an AI API key. The Docker build scans a bundled fictional PDF with ClamAV before extracting it. If that scan or extraction fails, the image will not build. Only that document is preloaded. Chat and the prompt scanner are interactive. Only new file uploads are disabled. Role and scope checks still apply. Admin can test Vault edits, archiving, account scopes, and incident status changes. The original laptop setup can still show the full upload → scan → index workflow.
 
 ## Publish from GitHub
 
 1. Push these files to your repo, either with the deployment branch selected below or after merging it to main. On [Render](https://dashboard.render.com/), sign in with GitHub.
 2. Choose **New → Blueprint** and connect the TrustGate repository. Select the branch containing `render.yaml` and keep the default Blueprint path.
-3. Render will ask for three secret values. Set three **different, judge-only demo passwords** of at least 7 characters for the Admin, Employee and Intern accounts. Do not reuse personal or production passwords. This exception applies only to the fictional, read-only judging deployment. Do not put these in GitHub. Render supplies the separate database credentials automatically. Select the free services if asked. Wait until the deployment is live.
+3. Render will ask for three secret values. Set three **different, judge-only demo passwords** of at least 7 characters for the Admin, Employee and Intern accounts. Do not reuse personal or production passwords. This exception applies only to the fictional judging deployment. Do not put these in GitHub. Render supplies the separate database credentials automatically. Select the free services if asked. Wait until the deployment is live.
 4. Open the URL shown on the Render service page in a private browser window. Use the public HTTPS URL Render actually assigns. The first visit after idle can take about a minute. The free database expires 30 days after creation. Check that this covers the judging period.
 
 | Account | Email |
@@ -23,4 +23,4 @@ This separate deployment is for fictional competition data only. It runs Vite, N
 - Share the app URL and the competition-only demo credentials with the judges through the submission channel. Do not send the PostgreSQL password. Do not submit real information to this demo.
 - New file upload is intentionally not part of this preview. For an upload and scan presentation, use the original local setup, or deploy a separate Linux scanner-enabled environment with sufficient memory.
 
-The public service uses a shared, read-only document library. Sessions are lost on service restart. To rotate the three demo passwords, update the Render environment and restart; the seed process updates password hashes and leaves the existing fixture intact.
+The public service uses a shared, fictional document library. Test chat before archiving the sample. Admin updates are visible to other demo users. Sessions are lost on service restart. To rotate the three demo passwords, update the Render environment and restart; the seed process updates password hashes and leaves the existing fixture intact.
