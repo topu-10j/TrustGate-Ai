@@ -40,6 +40,8 @@ function toVector(values) {
 
 export async function createPostgresKnowledge(pool, { embed } = {}) {
   await pool.query(`
+    ALTER TABLE trustgate_vault_documents
+      ADD COLUMN IF NOT EXISTS scan_retry_at TIMESTAMPTZ;
     CREATE TABLE IF NOT EXISTS trustgate_vault_chunks (
       document_id UUID NOT NULL REFERENCES trustgate_vault_documents(id) ON DELETE CASCADE,
       ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
@@ -79,6 +81,8 @@ export async function createPostgresKnowledge(pool, { embed } = {}) {
 
   const incidentFields = `id::text, occurred_at AS timestamp, type, severity, actor_role AS role, status, document_id AS "documentId"`;
   const incident = async (client, { type, severity, role = null, documentId = null }) => {
+    // Hold across COMMIT so the SSE cursor cannot pass an uncommitted lower ID.
+    await client.query("SELECT pg_advisory_xact_lock(18473, 1)");
     const result = await client.query(`
       INSERT INTO trustgate_incidents (type, severity, actor_role, document_id)
       VALUES ($1, $2, $3, $4) RETURNING ${incidentFields}
@@ -107,9 +111,18 @@ export async function createPostgresKnowledge(pool, { embed } = {}) {
         SELECT id, filename, mime_type, sha256, content
         FROM trustgate_vault_documents
         WHERE scan_status = 'pending_scan' AND archived_at IS NULL
-        ORDER BY created_at ASC, id ASC LIMIT $1
+          AND (scan_retry_at IS NULL OR scan_retry_at <= now())
+        ORDER BY scan_retry_at ASC NULLS FIRST, created_at ASC, id ASC LIMIT $1
       `, [limit]);
       return result.rows;
+    },
+
+    async deferScan(document) {
+      const { rowCount } = await pool.query(`
+        UPDATE trustgate_vault_documents SET scan_retry_at = now() + interval '1 minute'
+        WHERE id = $1 AND sha256 = $2 AND scan_status = 'pending_scan' AND archived_at IS NULL
+      `, [document.id, document.sha256]);
+      return rowCount !== 0;
     },
 
     async finishScan(document, text, { rejected = false } = {}) {
@@ -120,7 +133,7 @@ export async function createPostgresKnowledge(pool, { embed } = {}) {
       return transact(async (client) => {
         const { rowCount } = await client.query(`
           UPDATE trustgate_vault_documents
-          SET scan_status = $3, updated_at = now()
+          SET scan_status = $3, updated_at = now(), scan_retry_at = NULL
           WHERE id = $1 AND sha256 = $2 AND scan_status = 'pending_scan' AND archived_at IS NULL
         `, [document.id, document.sha256, rejected ? "rejected" : "clean"]);
         if (!rowCount) return "unchanged";
@@ -165,7 +178,7 @@ export async function createPostgresKnowledge(pool, { embed } = {}) {
       return result.rows;
     },
 
-    recordIncident: (event) => incident(pool, event),
+    recordIncident: (event) => transact((client) => incident(client, event)),
 
     async isChatPaused(email, time) {
       const { rowCount } = await pool.query(

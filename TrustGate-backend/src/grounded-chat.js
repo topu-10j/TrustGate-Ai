@@ -1,8 +1,15 @@
+const instructionThreats = new Set(["PROMPT_INJECTION", "JAILBREAK"]);
+
+export function shouldBlockChatScan(result) {
+  return result.decision === "BLOCK" || (result.decision === "WARN" &&
+    result.threats?.some((threat) => instructionThreats.has(threat)));
+}
+
 // This interface receives only already-authorized rows from the PostgreSQL query.
 export async function groundedSources(rows, scanPrompt) {
   const checked = await Promise.all(rows.map(async (row) => {
     const result = await scanPrompt(row.title + "\n" + row.body);
-    if (result.decision === "BLOCK") return null;
+    if (shouldBlockChatScan(result)) return null;
     const [title, ...body] = result.masked_prompt.split("\n");
     const text = body.join("\n").trim();
     if (!text) return null;

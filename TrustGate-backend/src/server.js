@@ -7,7 +7,7 @@ import { createAuditLog } from "./audit.js";
 import { scanPrompt as defaultScanner } from "./scanner.js";
 import { normalizeEmail, validCredentials } from "./local-accounts.js";
 import { readVaultUpload, validateDocumentMetadata, VaultInputError } from "./vault-upload.js";
-import { citedDocuments, fallbackGroundedAnswer, followUpQuery, groundedSources } from "./grounded-chat.js";
+import { citedDocuments, fallbackGroundedAnswer, followUpQuery, groundedSources, shouldBlockChatScan } from "./grounded-chat.js";
 import { streamAlerts } from "./alert-stream.js";
 import { normalizedScopes } from "./document-scopes.js";
 
@@ -191,22 +191,34 @@ export function createServer({
 
   async function integratedChat(res, session, question, matches) {
     const { role } = session;
+    const warnings = [];
+    const addWarning = (stage, scan) => {
+      if (scan.decision === "WARN") {
+        warnings.push({ stage, code: "SCANNER_WARNING", threats: scan.threats ?? [] });
+      }
+    };
+    const reply = (body) => sendJson(res, 200, warnings.length ? { ...body, warnings } : body);
     if (await useVault(() => knowledge.isChatPaused(session.email, now()))) {
       throw new ApiError(429, "CHAT_COOLDOWN", "Chat is temporarily paused for this session.");
     }
     const input = await scanOrThrow(question);
-    if (input.decision === "BLOCK") {
+    if (shouldBlockChatScan(input)) {
       await useAudit(() => audit.record({ role, decision: "denied", reasonCode: "PROMPT_BLOCKED" }));
-      await useVault(() => knowledge.recordPromptBlock({ email: session.email, role, time: now() }));
+      if (input.decision === "BLOCK") {
+        await useVault(() => knowledge.recordPromptBlock({ email: session.email, role, time: now() }));
+      } else {
+        await useVault(() => knowledge.recordIncident({ role, type: "PROMPT_BLOCKED", severity: "medium" }));
+      }
       throw new ApiError(403, "PROMPT_BLOCKED", "The prompt was blocked by the security scanner.");
     }
+    addWarning("input", input);
 
     const masked = input.masked_prompt.trim().slice(0, 500);
     const bengali = /[\u0980-\u09FF]/u.test(masked);
     if (/^(?:hi|hello|hey|হ্যালো|সালাম)[!.?]*$/iu.test(masked)) {
       const answer = bengali ? "হ্যালো! অনুমোদিত কোম্পানির তথ্য নিয়ে প্রশ্ন করো।" :
         "Hi! Ask me about company information you are allowed to access.";
-      return sendJson(res, 200, { answer, source: null, sources: [] });
+      return reply({ answer, source: null, sources: [] });
     }
     const lookup = followUpQuery(masked, session.lastQuestion);
     const rows = await useVault(() => knowledge.search(lookup, role, session.email));
@@ -216,7 +228,7 @@ export function createServer({
     if (!sources.length && !matches.length) {
       const answer = bengali ? "এই প্রশ্নের জন্য কোনো অনুমোদিত কোম্পানি তথ্য পাওয়া যায়নি।" :
         "No approved company source was found for this question.";
-      return sendJson(res, 200, { answer, source: null, sources: [] });
+      return reply({ answer, source: null, sources: [] });
     }
     await useAudit(() => audit.record({ role, decision: "allowed", reasonCode: "ACCESS_ALLOWED" }));
 
@@ -240,11 +252,12 @@ export function createServer({
       throw new ApiError(502, "ANSWER_UNAVAILABLE", "The answer service is unavailable.");
     }
     const output = await scanOrThrow(answer.slice(0, 950));
-    if (output.decision === "BLOCK") {
+    if (shouldBlockChatScan(output)) {
       throw new ApiError(502, "ANSWER_BLOCKED", "The answer was blocked by the security scanner.");
     }
+    addWarning("output", output);
     session.lastQuestion = lookup;
-    return sendJson(res, 200, { answer: output.masked_prompt, source: citations[0], sources: citations });
+    return reply({ answer: output.masked_prompt, source: citations[0], sources: citations });
   }
 
   return createHttpServer({ requestTimeout: 15_000 }, async (req, res) => {
@@ -372,6 +385,16 @@ export function createServer({
           const updated = await useVault(() => vault.setDocumentScopes(vaultMatch[1], scopes));
           if (!updated) throw new ApiError(404, "DOCUMENT_NOT_FOUND", "Document not found.");
           return sendJson(res, 200, { scopes: updated });
+        }
+        if (path === "/api/admin/account-scopes" && req.method === "GET") {
+          const emails = new URLSearchParams(req.url.slice(path.length)).getAll("email");
+          const account = normalizeEmail(emails[0]);
+          if (emails.length !== 1 || !validCredentials(account, "x")) {
+            throw new ApiError(400, "INVALID_EMAIL", "Use one valid account email.");
+          }
+          const scopes = await useVault(() => vault.getAccountScopes(account));
+          if (scopes === null) throw new ApiError(404, "ACCOUNT_NOT_FOUND", "Account not found.");
+          return sendJson(res, 200, { email: account, scopes });
         }
         if (path === "/api/admin/account-scopes" && req.method === "POST") {
           const input = await readJson(req, "email", "scopes");

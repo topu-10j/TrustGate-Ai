@@ -93,6 +93,16 @@ export async function createPostgresVault(pool) {
   return {
     setDocumentScopes: (id, scopes) => setScopes("document", id, scopes),
     setAccountScopes: (email, scopes) => setScopes("account", email, scopes),
+    async getAccountScopes(email) {
+      const { rows } = await pool.query(`
+        SELECT COALESCE((
+          SELECT json_agg(json_build_object('kind', s.kind, 'value', s.value) ORDER BY s.kind, s.value)
+          FROM trustgate_account_scopes s WHERE s.email = a.email
+        ), '[]'::json) AS scopes
+        FROM trustgate_accounts a WHERE a.email = $1
+      `, [email]);
+      return rows[0]?.scopes ?? null;
+    },
 
     async insert(input, email) {
       const result = await pool.query(`

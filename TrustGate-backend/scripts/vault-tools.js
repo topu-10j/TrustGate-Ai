@@ -2,7 +2,7 @@ import { withPasswordPrompt } from "../src/password-prompt.js";
 import { createPostgresPool } from "../src/postgres-accounts.js";
 import { createPostgresVault } from "../src/postgres-vault.js";
 import { createPostgresKnowledge } from "../src/postgres-knowledge.js";
-import { scanAndExtract } from "../src/vault-worker.js";
+import { processVaultQueue } from "../src/vault-queue.js";
 import { readSlackMessages } from "../src/slack-reader.js";
 import { embedLocally } from "../src/local-embeddings.js";
 
@@ -20,18 +20,12 @@ try {
   await createPostgresVault(pool);
   const knowledge = await createPostgresKnowledge(pool, { embed: process.env.TRUSTGATE_VECTOR_RAG === "1" ? embedLocally : undefined });
   if (operation === "scan") {
-    const pending = await knowledge.pending();
-    let unchanged = 0;
-    let clean = 0;
-    let rejected = 0;
-    for (const file of pending) {
-      const result = await scanAndExtract(file);
-      const status = await knowledge.finishScan(file, result.text, result);
-      if (status === "clean") clean++;
-      else if (status === "rejected") rejected++;
-      else unchanged++;
+    const { clean, rejected, unchanged, deferred } = await processVaultQueue(knowledge);
+    console.log(`Vault scan finished: ${clean} indexed, ${rejected} rejected, ${unchanged} unchanged. Scans up to 5 eligible pending files per run.`);
+    if (deferred) {
+      console.error(`${deferred} file(s) could not be processed and remain pending. Retry after one minute or review the pending files as Admin.`);
+      process.exitCode = 1;
     }
-    console.log(`Vault scan finished: ${clean} indexed, ${rejected} rejected, ${unchanged} unchanged. Scans up to 5 pending files per run.`);
   } else {
     const messages = await readSlackMessages({ token: keys.slack, channel: process.argv[3] });
     let imported = 0;

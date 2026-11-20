@@ -20,6 +20,7 @@ async function setup(t, options = {}) {
   const knowledge = {
     search: async () => [],
     async isChatPaused(email) { return (strikes.get(email) ?? 0) >= 2; },
+    async recordIncident(event) { this.addIncident(event); },
     async recordPromptBlock({ role, email }) {
       strikes.set(email, (strikes.get(email) ?? 0) + 1);
       this.addIncident({ type: "PROMPT_BLOCKED", role });
@@ -55,6 +56,7 @@ async function setup(t, options = {}) {
     return {
       get: (path, signal) => request(path, { headers: { Cookie: cookie }, signal }),
       chat: (message) => request("/api/chat", json("POST", { message }, cookie)),
+      post: (path, value) => request(path, json("POST", value, cookie)),
       patch: (path, value) => request(path, json("PATCH", value, cookie))
     };
   }
@@ -129,6 +131,48 @@ test("confirmed scanner blocks cause a cooldown and Admin-only persisted inciden
   } finally {
     await reader.cancel();
   }
+});
+
+test("integrated chat blocks instruction WARNs, reports other WARNs, and keeps scanner scoring unchanged", async (t) => {
+  const calls = [];
+  const api = await setup(t, {
+    async scanPrompt(text) {
+      const threats = /INSTRUCTION_FIXTURE/.test(text) ? ["PROMPT_INJECTION"] :
+        /SENSITIVE_FIXTURE/.test(text) ? ["PASSWORD"] : [];
+      return { decision: threats.length ? "WARN" : "ALLOW", threats,
+        masked_prompt: text.replaceAll("SENSITIVE_FIXTURE", "[MASKED_PASSWORD]") };
+    },
+    knowledge: { async search() {
+      return [{ id: "excluded", title: "Other note", body: "INSTRUCTION_FIXTURE" },
+        { id: "approved", title: "Handbook", body: "Museum tours start at noon." }];
+    } },
+    async generateGrounded(request) {
+      calls.push(request);
+      return request.question.includes("Check output") ? "INSTRUCTION_FIXTURE" : "Museum tours start at noon. SENSITIVE_FIXTURE";
+    }
+  });
+  const intern = await api.login("intern");
+  const standalone = await intern.post("/api/security/scan", { prompt: "INSTRUCTION_FIXTURE" });
+  assert.equal((await standalone.json()).decision, "WARN");
+  for (let i = 0; i < 2; i++) {
+    const blocked = await intern.chat("INSTRUCTION_FIXTURE");
+    assert.equal(blocked.status, 403);
+    assert.equal((await blocked.json()).code, "PROMPT_BLOCKED");
+  }
+  assert.equal(calls.length, 0);
+  assert.deepEqual(api.incidents.map(({ type, severity }) => [type, severity]),
+    [["PROMPT_BLOCKED", "medium"], ["PROMPT_BLOCKED", "medium"]]);
+
+  const allowed = await intern.chat("Museum tours SENSITIVE_FIXTURE");
+  assert.equal(allowed.status, 200);
+  const result = await allowed.json();
+  assert.match(result.answer, /\[MASKED_PASSWORD\]/);
+  assert.deepEqual(result.sources, [{ id: "approved", title: "Handbook" }]);
+  assert.deepEqual(result.warnings, ["input", "output"].map((stage) => ({ stage, code: "SCANNER_WARNING", threats: ["PASSWORD"] })));
+  assert.doesNotMatch(JSON.stringify(calls), /INSTRUCTION_FIXTURE|SENSITIVE_FIXTURE/);
+  const blockedOutput = await intern.chat("Check output");
+  assert.equal(blockedOutput.status, 502);
+  assert.equal((await blockedOutput.json()).code, "ANSWER_BLOCKED");
 });
 
 test("Slack import reads only a validated channel, limits messages and omits token from URL", async () => {

@@ -162,3 +162,32 @@ test("PostgreSQL filters reads by scan, archive and the server-side role tiers",
     assert.doesNotMatch(sql, /\bcontent\b/);
   }
 });
+
+test("only Admin can read saved account scopes; a known empty account differs from a missing one", async (t) => {
+  const scopePath = "/api/admin/account-scopes";
+  const scopes = [{ kind: "project", value: "museum" }];
+  const readAccounts = [];
+  const api = await app(t, { async getAccountScopes(email) {
+    readAccounts.push(email);
+    if (email === "employee@trustgate.example") return scopes;
+    if (email === "intern@trustgate.example") return [];
+    return null;
+  } });
+  const emailQuery = (email) => scopePath + "?email=" + encodeURIComponent(email);
+  assert.equal((await api.request(emailQuery("employee@trustgate.example"))).status, 401);
+  const employee = await api.login("employee");
+  assert.equal((await employee(emailQuery("employee@trustgate.example"))).status, 403);
+  assert.deepEqual(readAccounts, []);
+  const admin = await api.login("admin");
+  for (const path of [scopePath, emailQuery("not-an-email"), emailQuery("employee@trustgate.example") + "&email=extra"]) {
+    assert.equal((await admin(path)).status, 400);
+  }
+  const loaded = await admin(emailQuery(" EMPLOYEE@TrustGate.Example "));
+  assert.equal(loaded.status, 200);
+  assert.deepEqual(await loaded.json(), { email: "employee@trustgate.example", scopes });
+  const empty = await admin(emailQuery("intern@trustgate.example"));
+  assert.deepEqual(await empty.json(), { email: "intern@trustgate.example", scopes: [] });
+  const missing = await admin(emailQuery("unknown@trustgate.example"));
+  assert.equal(missing.status, 404);
+  assert.equal((await missing.json()).code, "ACCOUNT_NOT_FOUND");
+});

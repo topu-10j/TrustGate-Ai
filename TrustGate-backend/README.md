@@ -2,6 +2,10 @@
 
 NexusTech Ltd. একটি কাল্পনিক কোম্পানি। এই backend তিনটি demo role-এর জন্য তথ্যের access আলাদা করে। AI API, database বা third-party package ছাড়াই প্রথম demo চলে।
 
+Real login, the PostgreSQL Vault, and the chat guard use the
+[integrated backend](#integrated-backend-runs-alongside-the-existing-modes),
+not the role-picker instructions immediately below.
+
 ## VS Code-এ চালাও
 
 1. ZIP extract করো। VS Code-এ **File → Open Folder** দিয়ে `trustgate-backend` folder খুলে নাও।
@@ -244,9 +248,12 @@ that provider. Existing `start:postgres` and `start:gemini` modes remain availab
    the English per-file `found no threats` verdict and successful exit before
    extraction. Detections, missing verdicts, and scanner errors leave the file
    pending in Defender mode. An Admin can review or archive such uploads.
-3. Run `npm run vault:scan` from `TrustGate-backend` to process up to five pending
-   files. Scanner failure leaves a file pending, and a rejected document is
-   never indexed. A clean file is released only after extraction succeeds.
+3. Run `npm run vault:scan` from `TrustGate-backend` to process up to five eligible
+   pending files. If one fails to process, its status stays pending and the
+   worker continues with the rest of the batch. A failed file is eligible for
+   retry after one minute, behind files that have not been tried. The command
+   reports deferred files and exits nonzero if any were deferred. Rejected
+   documents are never indexed. Clean files are released only after extraction.
    PDF extraction is text-based (no OCR). DOCX covers document body text;
    XLSX covers the first 12 sheets, up to 500 rows and 40 columns per sheet.
 4. Default retrieval is PostgreSQL lexical matching (English and Bengali).
@@ -264,6 +271,11 @@ that nothing was found. Follow-up phrases reuse one previous masked query in
 the same session. Input and excerpts are screened and masked before cloud
 generation; output is screened and masked before returning. Rule-based
 scanning and model responses do not guarantee detection or factual accuracy.
+An integrated chat `WARN` for known prompt injection or jailbreak indicators
+blocks the affected prompt, excerpt, or answer. Other input/output warnings
+can continue after masking and appear in the response as an optional
+`warnings: [{ stage, code: "SCANNER_WARNING", threats }]` array. `stage` is
+`input` or `output`. The standalone `/api/security/scan` scoring is unchanged.
 
 ### Additional Admin APIs
 
@@ -276,15 +288,17 @@ manage Vault metadata separately.
 
 | Request | Body or result |
 | --- | --- |
+| `GET /api/admin/account-scopes?email=...` | `{ email, scopes }` for a known account. Empty assignments return `[]`; unknown accounts return `404`. |
 | `POST /api/admin/account-scopes` | JSON `{ email, scopes }`. Set account membership. |
 | `POST /api/vault/documents/:id/scopes` | JSON `{ scopes }`. Set document requirements. |
 | `GET /api/security/incidents` | Most recent incident metadata, Admin only. Integrated mode. |
 | `PATCH /api/security/incidents/:id` | JSON `{ status }`, `acknowledged` or `resolved`. |
 | `GET /api/security/alerts` | Admin SSE stream, event name `incident`. Use cookie credentials. |
 
-The incident stream contains metadata only. Two confirmed scanner blocks
-within five minutes pause chat for 60 seconds on that account, including after re-login; ordinary
-permission denials do not count as strikes. Login is already rate-limited.
+The incident stream contains metadata only. Two scanner `BLOCK` results within
+five minutes pause chat for 60 seconds on that account, including after re-login.
+An instruction-specific `WARN` that chat blocks is logged without a strike, just
+as ordinary permission denials do not count as strikes. Login is rate-limited.
 
 ### Slack import
 
