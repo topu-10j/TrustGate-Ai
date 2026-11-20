@@ -33,13 +33,14 @@ export async function verifyPostgresSchema(pool) {
   await pool.query("SELECT email, role, salt, hash FROM trustgate_accounts LIMIT 0");
 }
 
-export function createPostgresAuthenticator(pool, { network = false } = {}) {
+export function createPostgresAuthenticator(pool, { network = false, judge = false } = {}) {
   const verifyPassword = createPasswordVerifier();
+  const policy = judge ? "judge-demo" : network ? "network" : null;
   return async (email, password) => {
     const result = await pool.query(
       "SELECT email, role, salt, hash FROM trustgate_accounts WHERE email = $1" +
-        (network ? " AND password_policy = 'network'" : ""),
-      [email]
+        (policy ? " AND password_policy = $2" : ""),
+      policy ? [email, policy] : [email]
     );
     return verifyPassword(result.rows[0], password);
   };
@@ -75,9 +76,9 @@ export async function provisionDemoNetworkAccounts(pool, accounts) {
     for (const { email, role, salt, hash } of accounts) {
       await client.query(`
         INSERT INTO trustgate_accounts (email, role, salt, hash, password_policy)
-        VALUES ($1, $2, $3, $4, 'network')
+        VALUES ($1, $2, $3, $4, 'judge-demo')
         ON CONFLICT (email) DO UPDATE SET role = EXCLUDED.role, salt = EXCLUDED.salt,
-          hash = EXCLUDED.hash, password_policy = 'network'
+          hash = EXCLUDED.hash, password_policy = 'judge-demo'
       `, [email, role, salt, hash]);
     }
     await client.query("COMMIT");
@@ -101,10 +102,11 @@ export function postgresErrorMessage(error) {
   }
 }
 
-// No deployment can reuse the five-character local test credential policy.
-export async function requireNetworkAccounts(pool) {
+// Dedicated judge accounts never qualify for the standard network mode.
+export async function requireNetworkAccounts(pool, { judge = false } = {}) {
   await pool.query("ALTER TABLE trustgate_accounts ADD COLUMN IF NOT EXISTS password_policy TEXT NOT NULL DEFAULT 'local'");
-  const { rows } = await pool.query("SELECT count(*)::int AS weak FROM trustgate_accounts WHERE password_policy <> 'network'");
+  const { rows } = await pool.query("SELECT count(*)::int AS weak FROM trustgate_accounts WHERE password_policy <> $1",
+    [judge ? "judge-demo" : "network"]);
   if (rows[0].weak !== 0) {
     const error = new Error("Rotate local account passwords before network startup using npm run postgres:network-passwords.");
     error.code = "NETWORK_PASSWORDS_REQUIRED";

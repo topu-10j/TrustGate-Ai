@@ -68,7 +68,7 @@ if (postgresMode) {
     if (judge) await judge.setupJudgeAccounts(pool, passwords);
     passwords = undefined;
     await postgres.verifyPostgresSchema(pool);
-    if (options.secureCookies) await postgres.requireNetworkAccounts(pool);
+    if (options.secureCookies) await postgres.requireNetworkAccounts(pool, { judge: Boolean(judge) });
     options.audit = await createPostgresAuditLog(pool);
     options.vault = await createPostgresVault(pool);
     if (integrated) {
@@ -89,7 +89,7 @@ if (postgresMode) {
         });
       }
     }
-    options.authenticate = postgres.createPostgresAuthenticator(pool, { network: options.secureCookies });
+    options.authenticate = postgres.createPostgresAuthenticator(pool, { network: options.secureCookies, judge: Boolean(judge) });
     options.accountSource = "postgres";
   } catch (error) {
     console.error((error.message === "Run this command in an interactive terminal." || ["VECTOR_NOT_AVAILABLE", "NETWORK_PASSWORDS_REQUIRED", "JUDGE_DEMO_INITIALIZATION_FAILED"].includes(error.code))

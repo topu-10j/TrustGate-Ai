@@ -6,7 +6,7 @@ This separate deployment is for fictional competition data only. It runs Vite, N
 
 1. Push these files to your repo, either with the deployment branch selected below or after merging it to main. On [Render](https://dashboard.render.com/), sign in with GitHub.
 2. Choose **New → Blueprint** and connect the TrustGate repository. Select the branch containing `render.yaml` and keep the default Blueprint path.
-3. Render will ask for three secret values. Set **different, randomly generated passwords** of at least 16 characters for the Admin, Employee and Intern accounts. Do not put these in GitHub. Render supplies the separate database credentials automatically. Select the free services if asked. Wait until the deployment is live.
+3. Render will ask for three secret values. Set three **different, judge-only demo passwords** of at least 7 characters for the Admin, Employee and Intern accounts. Do not reuse personal or production passwords. This exception applies only to the fictional, read-only judging deployment. Do not put these in GitHub. Render supplies the separate database credentials automatically. Select the free services if asked. Wait until the deployment is live.
 4. Open the URL shown on the Render service page in a private browser window. Use the public HTTPS URL Render actually assigns. The first visit after idle can take about a minute. The free database expires 30 days after creation. Check that this covers the judging period.
 
 | Account | Email |

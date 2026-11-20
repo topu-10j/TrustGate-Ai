@@ -27,10 +27,10 @@ export function judgePasswords(env) {
     throw new Error("Use a separate trustgate_judge PostgreSQL database with PGPASSWORD configured.");
   }
   const passwords = roles.map(role => [role, env["TRUSTGATE_JUDGE_" + role.toUpperCase() + "_PASSWORD"]]);
-  if (passwords.some(([, password]) => typeof password !== "string" || password.length < 16 ||
+  if (passwords.some(([, password]) => typeof password !== "string" || password.length < 7 ||
       Buffer.byteLength(password) > 256 || password.trim() !== password || password === env.PGPASSWORD) ||
       new Set(passwords.map(([, password]) => password)).size !== roles.length) {
-    throw new Error("Set three different judge demo passwords (16–256 UTF-8 bytes) in the service environment.");
+    throw new Error("Set three different judge demo passwords (at least 7 characters, up to 256 UTF-8 bytes) in the service environment.");
   }
   return passwords;
 }
