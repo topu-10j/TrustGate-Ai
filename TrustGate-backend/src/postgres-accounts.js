@@ -33,11 +33,12 @@ export async function verifyPostgresSchema(pool) {
   await pool.query("SELECT email, role, salt, hash FROM trustgate_accounts LIMIT 0");
 }
 
-export function createPostgresAuthenticator(pool) {
+export function createPostgresAuthenticator(pool, { network = false } = {}) {
   const verifyPassword = createPasswordVerifier();
   return async (email, password) => {
     const result = await pool.query(
-      "SELECT email, role, salt, hash FROM trustgate_accounts WHERE email = $1",
+      "SELECT email, role, salt, hash FROM trustgate_accounts WHERE email = $1" +
+        (network ? " AND password_policy = 'network'" : ""),
       [email]
     );
     return verifyPassword(result.rows[0], password);
@@ -73,5 +74,37 @@ export function postgresErrorMessage(error) {
     case "23505": return "Test accounts already exist. No existing passwords were overwritten.";
     case "ABORT_ERR": return "Password entry cancelled.";
     default: return "Could not complete the PostgreSQL operation.";
+  }
+}
+
+// No deployment can reuse the five-character local test credential policy.
+export async function requireNetworkAccounts(pool) {
+  await pool.query("ALTER TABLE trustgate_accounts ADD COLUMN IF NOT EXISTS password_policy TEXT NOT NULL DEFAULT 'local'");
+  const { rows } = await pool.query("SELECT count(*)::int AS weak FROM trustgate_accounts WHERE password_policy <> 'network'");
+  if (rows[0].weak !== 0) {
+    const error = new Error("Rotate local account passwords before network startup using npm run postgres:network-passwords.");
+    error.code = "NETWORK_PASSWORDS_REQUIRED";
+    throw error;
+  }
+}
+
+export async function rotateNetworkAccounts(pool, records) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("ALTER TABLE trustgate_accounts ADD COLUMN IF NOT EXISTS password_policy TEXT NOT NULL DEFAULT 'local'");
+    for (const record of records) {
+      const result = await client.query(`
+        UPDATE trustgate_accounts SET salt = $3, hash = $4, password_policy = 'network'
+        WHERE email = $1 AND role = $2
+      `, [record.email, record.role, record.salt, record.hash]);
+      if (result.rowCount !== 1) throw new Error("Local test accounts were not found; no passwords were changed.");
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
   }
 }

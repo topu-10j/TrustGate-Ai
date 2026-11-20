@@ -16,7 +16,13 @@
     "postgres:setup": "node scripts/setup-postgres.js",
     "start:postgres": "node src/index.js --postgres",
     "start:gemini": "node src/index.js --postgres --gemini",
-    "gemini:check": "node scripts/check-gemini.js"
+    "gemini:check": "node scripts/check-gemini.js",
+    "start:integrated": "node src/index.js --postgres --gemini --integrated",
+    "start:integrated-local": "node src/index.js --postgres --integrated",
+    "vault:scan": "node scripts/vault-tools.js scan",
+    "vault:slack-import": "node scripts/vault-tools.js slack",
+    "postgres:network-passwords": "node scripts/setup-postgres.js --network",
+    "start:integrated-openai": "node src/index.js --postgres --openai --integrated"
   },
   "dependencies": {
     "busboy": "1.6.0",

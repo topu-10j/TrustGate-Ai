@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { canRead } from "./policy.js";
 import { MAX_FILE_BYTES } from "./vault-upload.js";
+import { allDocumentScopesMatch } from "./document-scopes.js";
 
 const fields = `
   id, title, filename, mime_type, size_bytes, access_level,
@@ -21,7 +22,8 @@ function documentMetadata(row) {
     scanStatus: row.scan_status,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
-    archivedAt: row.archived_at ? new Date(row.archived_at).toISOString() : null
+    archivedAt: row.archived_at ? new Date(row.archived_at).toISOString() : null,
+    ...(Array.isArray(row.scopes) ? { scopes: row.scopes } : {})
   };
 }
 
@@ -42,10 +44,56 @@ export async function createPostgresVault(pool) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       archived_at TIMESTAMPTZ
+    );
+    CREATE TABLE IF NOT EXISTS trustgate_document_scopes (
+      document_id UUID NOT NULL REFERENCES trustgate_vault_documents(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('department', 'project')),
+      value TEXT NOT NULL,
+      PRIMARY KEY (document_id, kind, value)
+    );
+    CREATE TABLE IF NOT EXISTS trustgate_account_scopes (
+      email TEXT NOT NULL REFERENCES trustgate_accounts(email) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('department', 'project')),
+      value TEXT NOT NULL,
+      PRIMARY KEY (email, kind, value)
     )
   `);
 
+  async function setScopes(target, key, scopes) {
+    const account = target === "account";
+    const master = account ? "trustgate_accounts" : "trustgate_vault_documents";
+    const table = account ? "trustgate_account_scopes" : "trustgate_document_scopes";
+    const field = account ? "email" : "document_id";
+    const masterField = account ? "email" : "id";
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const found = await client.query(`SELECT 1 FROM ${master} WHERE ${masterField} = $1 FOR UPDATE`, [key]);
+      if (!found.rowCount) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+      await client.query(`DELETE FROM ${table} WHERE ${field} = $1`, [key]);
+      if (scopes.length) {
+        await client.query(`
+          INSERT INTO ${table} (${field}, kind, value)
+          SELECT $1, kind, value FROM unnest($2::text[], $3::text[]) AS scopes(kind, value)
+        `, [key, scopes.map(({ kind }) => kind), scopes.map(({ value }) => value)]);
+      }
+      await client.query("COMMIT");
+      return scopes;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   return {
+    setDocumentScopes: (id, scopes) => setScopes("document", id, scopes),
+    setAccountScopes: (email, scopes) => setScopes("account", email, scopes),
+
     async insert(input, email) {
       const result = await pool.query(`
         INSERT INTO trustgate_vault_documents
@@ -59,22 +107,26 @@ export async function createPostgresVault(pool) {
 
     async listAdmin() {
       const result = await pool.query(`
-        SELECT ${fields}
-        FROM trustgate_vault_documents
+        SELECT ${fields}, COALESCE((
+          SELECT json_agg(json_build_object('kind', s.kind, 'value', s.value) ORDER BY s.kind, s.value)
+          FROM trustgate_document_scopes s WHERE s.document_id = d.id
+        ), '[]'::json) AS scopes
+        FROM trustgate_vault_documents d
         ORDER BY created_at DESC, id DESC LIMIT $1
       `, [maxListing]);
       return result.rows.map(documentMetadata);
     },
 
-    async listReadable(role) {
+    async listReadable(role, email = null) {
       const allowed = accessTiers.filter((level) => canRead(role, level));
       const result = await pool.query(`
         SELECT ${fields}
-        FROM trustgate_vault_documents
+        FROM trustgate_vault_documents d
         WHERE scan_status = 'clean' AND archived_at IS NULL
           AND access_level = ANY($1::text[])
+          AND ${allDocumentScopesMatch("d", "$3")}
         ORDER BY created_at DESC, id DESC LIMIT $2
-      `, [allowed, maxListing]);
+      `, [allowed, maxListing, email]);
       return result.rows.map(documentMetadata);
     },
 

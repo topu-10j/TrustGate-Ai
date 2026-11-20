@@ -1,5 +1,6 @@
 import { createServer } from "./server.js";
 import { loadLocalAuthenticator } from "./local-accounts.js";
+import { deploymentConfig } from "./deployment.js";
 
 const port = Number(process.env.PORT ?? 3000);
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -7,18 +8,24 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   process.exit(1);
 }
 
-const options = process.env.FRONTEND_ORIGIN
-  ? { allowedOrigins: [process.env.FRONTEND_ORIGIN] }
-  : {};
 const loginMode = process.argv.includes("--login");
 const postgresMode = process.argv.includes("--postgres");
 const geminiMode = process.argv.includes("--gemini");
-if (geminiMode && !postgresMode) {
-  console.error("Gemini mode requires PostgreSQL-backed login.");
+const integrated = process.argv.includes("--integrated");
+const openaiMode = process.argv.includes("--openai");
+let config;
+try { config = deploymentConfig(process.env, postgresMode); }
+catch (error) {
+  console.error(error.message);
   process.exit(1);
 }
-if (loginMode && postgresMode) {
-  console.error("Choose one login mode.");
+const { bindHost, ...options } = config;
+if ((geminiMode || openaiMode || integrated) && !postgresMode) {
+  console.error("This mode requires PostgreSQL-backed login.");
+  process.exit(1);
+}
+if ((loginMode && postgresMode) || (geminiMode && openaiMode)) {
+  console.error("Choose one login mode and one answer provider.");
   process.exit(1);
 }
 let pool;
@@ -47,12 +54,19 @@ if (postgresMode) {
     pool = postgres.createPostgresPool(password);
     pool.on("error", () => console.error("PostgreSQL connection interrupted."));
     await postgres.verifyPostgresSchema(pool);
+    if (options.secureCookies) await postgres.requireNetworkAccounts(pool);
     options.audit = await createPostgresAuditLog(pool);
     options.vault = await createPostgresVault(pool);
-    options.authenticate = postgres.createPostgresAuthenticator(pool);
+    if (integrated) {
+      const { createPostgresKnowledge } = await import("./postgres-knowledge.js");
+      const embed = process.env.TRUSTGATE_VECTOR_RAG === "1"
+        ? (await import("./local-embeddings.js")).embedLocally : undefined;
+      options.knowledge = await createPostgresKnowledge(pool, { embed });
+    }
+    options.authenticate = postgres.createPostgresAuthenticator(pool, { network: options.secureCookies });
     options.accountSource = "postgres";
   } catch (error) {
-    console.error(error.message === "Run this command in an interactive terminal."
+    console.error((error.message === "Run this command in an interactive terminal." || ["VECTOR_NOT_AVAILABLE", "NETWORK_PASSWORDS_REQUIRED"].includes(error.code))
       ? error.message : postgres.postgresErrorMessage(error));
     await pool?.end();
     process.exit(1);
@@ -60,10 +74,24 @@ if (postgresMode) {
 }
 if (geminiMode) {
   const { withPasswordPrompt } = await import("./password-prompt.js");
-  const { createGeminiAnswerProvider } = await import("./gemini-answer.js");
+  const { createGeminiAnswerProvider, createGeminiGroundedProvider } = await import("./gemini-answer.js");
   try {
     const key = process.env.GEMINI_API_KEY || await withPasswordPrompt((secret) => secret("Gemini API key: "));
-    options.generateAnswer = createGeminiAnswerProvider({ apiKey: key, model: process.env.TRUSTGATE_GEMINI_MODEL });
+    const geminiOptions = { apiKey: key, model: process.env.TRUSTGATE_GEMINI_MODEL };
+    options.generateAnswer = createGeminiAnswerProvider(geminiOptions);
+    if (integrated) options.generateGrounded = createGeminiGroundedProvider(geminiOptions);
+  } catch (error) {
+    console.error(error.code === "ABORT_ERR" ? "Cancelled." : error.message);
+    await pool?.end();
+    process.exit(1);
+  }
+}
+if (openaiMode) {
+  const { withPasswordPrompt } = await import("./password-prompt.js");
+  const { createOpenAIProviders } = await import("./openai-answer.js");
+  try {
+    const key = process.env.OPENAI_API_KEY || await withPasswordPrompt((secret) => secret("OpenAI API key: "));
+    Object.assign(options, createOpenAIProviders({ apiKey: key, model: process.env.TRUSTGATE_OPENAI_MODEL }));
   } catch (error) {
     console.error(error.code === "ABORT_ERR" ? "Cancelled." : error.message);
     await pool?.end();
@@ -81,7 +109,9 @@ server.on("error", (error) => {
   if (pool) void pool.end();
 });
 
-server.listen(port, "127.0.0.1", () => {
-  console.log(`TrustGate ${postgresMode ? "PostgreSQL login mode" : loginMode ? "local login mode" : "local demo"} running at http://127.0.0.1:${port}`);
+server.listen(port, bindHost, () => {
+  console.log(`TrustGate ${postgresMode ? "PostgreSQL login mode" : loginMode ? "local login mode" : "local demo"} running at http://${bindHost}:${port}`);
   if (geminiMode) console.log("Gemini is enabled for the approved fictional demo topics.");
+  if (openaiMode) console.log("OpenAI is enabled for approved sources.");
+  if (integrated) console.log("Vault retrieval, inline guard and Admin incidents are enabled.");
 });

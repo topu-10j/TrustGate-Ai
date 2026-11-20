@@ -216,3 +216,94 @@ user identity, cookies, demo passcodes, and Vault documents stay local.
 Gemini mode is intentionally not Vault retrieval/RAG. The chat API still has
 the same source field and handles one supported topic per question. Provider
 failures return the existing generic `502 ANSWER_UNAVAILABLE`.
+
+## Integrated backend (runs alongside the existing modes)
+
+Use `npm run start:integrated-local` for the PostgreSQL-backed Vault, rule-based
+inline scanner, local extractive replies, and Admin incidents. It does not
+send anything to a model API. For authorized live generated replies use
+`npm run start:integrated` (Gemini) or `npm run start:integrated-openai` (OpenAI,
+default model `gpt-5-mini`, override `TRUSTGATE_OPENAI_MODEL`). These prompt for
+the provider key unless it is already set in the corresponding environment
+variable. Use fictional or explicitly approved data when enabling a cloud
+provider: the masked question and the selected approved excerpts are sent to
+that provider. Existing `start:postgres` and `start:gemini` modes remain available.
+
+### Vault processing and knowledge retrieval
+
+1. Install the extraction dependencies for the same Python used by the
+   scanner, for example from the repository root:
+   `python -m pip install -r security-engine/requirements-vault.txt`.
+   Set `TRUSTGATE_PYTHON` to the interpreter's full path when necessary.
+2. By default, use ClamAV with current definitions. If `clamscan` is not in
+   PATH, set `TRUSTGATE_CLAMSCAN` to its executable path. Alternatively, on
+   Windows with active Microsoft Defender Antivirus, open an Administrator
+   PowerShell and set `$env:TRUSTGATE_VAULT_SCANNER = 'defender'` in the **worker**
+   terminal. Keep the web server in its regular terminal. The worker uses the
+   installed `MpCmdRun.exe` for a custom scan without remediation. It requires
+   the English per-file `found no threats` verdict and successful exit before
+   extraction. Detections, missing verdicts, and scanner errors leave the file
+   pending in Defender mode. An Admin can review or archive such uploads.
+3. Run `npm run vault:scan` from `TrustGate-backend` to process up to five pending
+   files. Scanner failure leaves a file pending, and a rejected document is
+   never indexed. A clean file is released only after extraction succeeds.
+   PDF extraction is text-based (no OCR). DOCX covers document body text;
+   XLSX covers the first 12 sheets, up to 500 rows and 40 columns per sheet.
+4. Default retrieval is PostgreSQL lexical matching (English and Bengali).
+   For optional hybrid semantic retrieval, enable the `vector` extension in
+   the PostgreSQL database, install `security-engine/requirements-embeddings.txt`,
+   and set `TRUSTGATE_VECTOR_RAG=1` before running both `vault:scan` and the
+   integrated backend. This loads the multilingual E5-small embedding model
+   locally. Its first use needs model download access. Documents indexed
+   previously without vector embeddings still use lexical matching.
+
+A request receives only clean, non-archived excerpts allowed by the user's
+role and group scopes. The response keeps `source` for one-source compatibility
+and adds `sources` for citations; with no matching approved record it reports
+that nothing was found. Follow-up phrases reuse one previous masked query in
+the same session. Input and excerpts are screened and masked before cloud
+generation; output is screened and masked before returning. Rule-based
+scanning and model responses do not guarantee detection or factual accuracy.
+
+### Additional Admin APIs
+
+Use the authenticated cookie. An empty scopes list clears that object's
+extra restrictions. Scope entries are objects such as
+`{ "kind": "department", "value": "engineering" }` or
+`{ "kind": "project", "value": "atlas" }`. Matching the role tier and all
+document scopes is required for the readable list or RAG. Admin can still
+manage Vault metadata separately.
+
+| Request | Body or result |
+| --- | --- |
+| `POST /api/admin/account-scopes` | JSON `{ email, scopes }`. Set account membership. |
+| `POST /api/vault/documents/:id/scopes` | JSON `{ scopes }`. Set document requirements. |
+| `GET /api/security/incidents` | Most recent incident metadata, Admin only. Integrated mode. |
+| `PATCH /api/security/incidents/:id` | JSON `{ status }`, `acknowledged` or `resolved`. |
+| `GET /api/security/alerts` | Admin SSE stream, event name `incident`. Use cookie credentials. |
+
+The incident stream contains metadata only. Two confirmed scanner blocks
+within five minutes pause chat for 60 seconds on that account, including after re-login; ordinary
+permission denials do not count as strikes. Login is already rate-limited.
+
+### Slack import
+
+Use `npm run vault:slack-import -- CHANNEL_ID` with a bot token that has access
+to the channel and the appropriate history scope. The tool reads at most 15
+recent plain-text messages, deduplicates on channel and message timestamp,
+and puts them in the confidential/pending Vault. It does not post messages
+or read attachments. Run the same scan and indexing step before using these
+messages in chat. A real workspace token is needed for live validation.
+
+### Network configuration (does not deploy the app)
+
+Leave `TRUSTGATE_BIND_HOST` unset for the present local demo. For a network
+deployment configure the intended reverse proxy/service and TLS first, set
+`TRUSTGATE_BIND_HOST=0.0.0.0`, provide exact comma-separated
+`TRUSTGATE_ALLOWED_HOSTS`, and set `FRONTEND_ORIGIN` to one or more
+same-site HTTPS frontend origins. HTTPS mode uses Secure HttpOnly cookies.
+Network mode is PostgreSQL-only and refuses to start with local test
+credentials. To replace those credentials intentionally, use
+`npm run postgres:network-passwords` and then restart the backend. It changes
+the three existing test passwords and requires longer ones. This does not
+change the five-character rule in the localhost-only demo.
